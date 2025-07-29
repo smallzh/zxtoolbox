@@ -1,1 +1,4 @@
 paramiko>=3.5.1
+psutil
+py-cpuinfo
+GPUtitl
