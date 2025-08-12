@@ -2,8 +2,13 @@
 
 Window、Mac、Linux系统中，对经常做的一些重复性事情的封装
 
+## 0x01. 项目打包
 
-## 1. 目录结构
+```shell
+uv sync
+```
+
+## 0x02. 目录结构
 ```text
 --|
   - doc: 文档目录
@@ -23,7 +28,7 @@ Window、Mac、Linux系统中，对经常做的一些重复性事情的封装
     
 ```
 
-## 2. 依赖的包
+## 0x09. 依赖的包
 1. paramiko, 网站:[https://www.paramiko.org/](https://www.paramiko.org/)
 2. psutil, 网站:
 3. py-cpuinfo, 网站:
