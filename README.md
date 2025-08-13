@@ -8,6 +8,8 @@ Window、Mac、Linux系统中，对经常做的一些重复性事情的封装
 uv sync
 ```
 
+参考：[uv的Projects下的Creating projects](https://docs.astral.sh/uv/concepts/projects/init/)
+
 ## 0x02. 目录结构
 ```text
 --|
