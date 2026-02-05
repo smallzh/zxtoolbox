@@ -1,0 +1,37 @@
+site_name: zxtoolbox
+site_description: Window、Mac、Linux系统中,对经常做的一些重复性事情的封装
+site_author: smallZh
+
+# Directory configuration
+docs_dir: doc
+site_dir: site
+
+# Theme configuration
+theme:
+  name: gitbook
+
+# Navigation structure
+nav:
+  - 首页: index.md
+  - 文档:
+      - 电脑OS和硬件信息: computer_info.md
+      - Git分支文件管理: git_branch_file.md
+      - PyPI发布流程: publish_to_pypi.md
+
+# Plugins
+plugins: []
+
+# Markdown extensions
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+
+# Extra configuration
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://gitee.com/smallZh/toolbox

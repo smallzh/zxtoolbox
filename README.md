@@ -14,16 +14,16 @@ uv sync
 ```text
 --|
   - doc: 文档目录
-  - toolbox: 代码目录
-        - __init__.py: 包文件
-        - cli.py: 命令行入库
-        - ssh_deploy.py: 通过 ssh的方式，部署项目
-        - computer_info.py: 获取计算机的cpu、gpu、内存、硬盘相关信息
-        - test : 测试目录
+  - src: 代码目录
+      - toolbox: 代码目录
             - __init__.py: 包文件
-            - test_cli.py: 测试文件
-            - test_ssh_deploy.py: 测试文件
-  - setup.py
+            - cli.py: 命令行入库
+            - ssh_deploy.py: 通过 ssh的方式，部署项目
+            - computer_info.py: 获取计算机的cpu、gpu、内存、硬盘相关信息
+            - test : 测试目录
+                - __init__.py: 包文件
+                - test_cli.py: 测试文件
+                - test_ssh_deploy.py: 测试文件
   - README.md
   - requirements.txt
   - test-requirements.txt
