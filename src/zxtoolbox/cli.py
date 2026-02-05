@@ -1,6 +1,7 @@
 import argparse
 import zxtoolbox.computer_info as cpi
 import zxtoolbox.git_branch_file as gbf
+import zxtoolbox.pyopt_2fa as opt2fa
 
 
 def main():
@@ -17,6 +18,10 @@ def main():
     parser.add_argument("-i", "--include", help="包含检测的文件列表(txt文件)")
     parser.add_argument("-o", "--output", help="输出目录")
     parser.add_argument("-f", "--file", help="参考文件路径(JSON文件)")
+
+    # opt解析
+    parser.add_argument("-t", "--totp", action="store_true", help="激活totp解析功能")
+    parser.add_argument("-k", "--key", type=str, help="totp待解析的key")
 
     args = parser.parse_args()
 
@@ -47,6 +52,12 @@ def main():
             gbf.copy_diff_files(args.file)
         else:
             print("Please specify a git function: -e (export)")
+    elif args.totp:
+        # 处理 opt解析
+        if not args.key:
+            print("Error: -k parameters is required for totp function")
+            return
+        opt2fa.parseTotpCdoe(args.key)
     else:
         parser.print_help()
 
