@@ -56,15 +56,17 @@ def should_include_file(file_path: str, include_patterns: list) -> bool:
     return False
 
 
-def summary_branch_files(include_file: str, output_dir: str):
+def summary_branch_files(include_file: str, output_dir: str, project_path: str = None):
     """汇总当前分支下的文件信息
-    
+
     Args:
         include_file: 包含检测的文件列表(txt文件)
         output_dir: 输出目录
+        project_path: 项目根目录路径，默认为当前工作目录
     """
     # 获取项目信息
-    project_path = os.getcwd()
+    if project_path is None:
+        project_path = os.getcwd()
     project_name = get_project_name(project_path)
     branch_name = get_git_branch_name()
     export_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -164,19 +166,21 @@ def compare_files(ref_data: dict, current_files_info: list) -> dict:
     return diff_files
 
 
-def export_diff_files(ref_file: str, output_dir: str):
+def export_diff_files(ref_file: str, output_dir: str, project_path: str = None):
     """导出分支下的差异文件
-    
+
     Args:
         ref_file: 参考文件(JSON格式)
         output_dir: 输出目录
+        project_path: 项目根目录路径，默认使用参考文件中的路径
     """
     # 读取参考数据
     with open(ref_file, "r", encoding="utf-8") as f:
         ref_data = json.load(f)
-    
-    # 获取当前项目信息
-    project_path = os.getcwd()
+
+    # 获取项目信息
+    if project_path is None:
+        project_path = ref_data.get("project_path", os.getcwd())
     project_name = get_project_name(project_path)
     branch_name = get_git_branch_name()
     export_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -263,17 +267,19 @@ def export_diff_files(ref_file: str, output_dir: str):
     print(f"Total diff files: {len(diff_files)}")
 
 
-def copy_diff_files(ref_file: str):
+def copy_diff_files(ref_file: str, project_path: str = None):
     """复制差异文件到对应目录
-    
+
     Args:
         ref_file: 参考文件(JSON格式，包含差异文件信息)
+        project_path: 项目根目录路径，默认使用参考文件中的路径
     """
     # 读取差异文件信息
     with open(ref_file, "r", encoding="utf-8") as f:
         diff_data = json.load(f)
-    
-    project_path = diff_data["project_path"]
+
+    if project_path is None:
+        project_path = diff_data.get("project_path", os.getcwd())
     diff_files = diff_data["files"]
     
     # 获取参考文件所在目录
