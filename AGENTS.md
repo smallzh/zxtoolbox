@@ -11,7 +11,7 @@
 - **Python**: >= 3.13
 - **包管理器**: uv
 - **构建系统**: uv_build
-- **命令行工具**: 通过 `[project.scripts]` 配置为 `zxtoolbox` 命令
+- **命令行工具**: 通过 `[project.scripts]` 配置为 `zxtool` 命令
 
 ### 核心依赖
 - `paramiko`: SSH 部署功能
@@ -31,7 +31,7 @@ toolbox/
 │       ├── __init__.py    # 包初始化，包含 cowsay 函数
 │       ├── cli.py         # 命令行入口
 │       ├── computer_info.py  # 计算机信息获取（CPU、内存、硬盘）
-│       └── ssh_deploy.py  # SSH 部署功能
+│       └── video_download.py  # SSH 部署功能
 ├── dist/                  # 构建输出目录
 ├── .gitignore            # Git 忽略配置
 ├── .python-version       # Python 版本锁定
@@ -52,7 +52,7 @@ uv sync
 ### 运行项目
 ```bash
 # 直接运行 CLI
-zxtoolbox
+zxtool
 
 # 或使用 Python 运行模块
 python -m zxtoolbox.cli
@@ -61,7 +61,7 @@ python -m zxtoolbox.cli
 ### 开发模式
 ```bash
 # 使用 uv 运行
-uv run zxtoolbox
+uv run zxtool
 ```
 
 ## 核心功能模块
@@ -81,9 +81,6 @@ uv run zxtoolbox
 辅助函数：
 - `convert_read_str(number)`: 将字节数转换为人类可读格式（KB/MB/GB）
 - `init_table(table)`: 初始化表格样式
-
-### 3. SSH 部署 (`ssh_deploy.py`)
-用于通过 SSH 方式部署项目（当前文件为空，待实现）
 
 ### 4. 工具函数 (`__init__.py`)
 - `cowsay(msg)`: 终端 ASCII 艺术牛说话效果，用于友好的用户欢迎信息
