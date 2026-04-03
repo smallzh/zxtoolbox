@@ -272,12 +272,15 @@ wheels = [
 ]
 
 [[package]]
-name = "mkdocs-gitbook"
-version = "0.0.1"
+name = "mkdocs-smzhbook-theme"
+version = "1.1"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/e1/65/a4d51a87817f8d62d938d86c03f595a89d40770f1f96daeae1bae1e9d9ad/mkdocs-gitbook-0.0.1.tar.gz", hash = "sha256:c094f9d77e47d54379a0d3816097b56511e760fedb23dcf89bc925f6ac4e75f3", size = 654211, upload-time = "2019-04-08T15:02:08.587Z" }
+dependencies = [
+    { name = "mkdocs" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/e7/84/db44313ba056d1c528aa60037a7ac007fe810f42a6d82dc22867904d3d1e/mkdocs_smzhbook_theme-1.1.tar.gz", hash = "sha256:2b6adcd8a0e5ac19c4fecd253eb0211505e2883951473dc18f6ff0066a397da7", size = 1003384, upload-time = "2026-04-01T03:15:35.542Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/62/82/de16d4c4005688328d9dee78db95b8fc9acf6f5b2523f464f60e6a22f2e3/mkdocs_gitbook-0.0.1-py2.py3-none-any.whl", hash = "sha256:e929c3caf655076eaa030128cfd104687b9ec14644d54f4a175d43e13ac60ef8", size = 656595, upload-time = "2019-04-08T15:02:05.496Z" },
+    { url = "https://files.pythonhosted.org/packages/f1/50/6da2ffb1be10b1fcddb976e7216a419dd3acd0c955545233263ed1feb19a/mkdocs_smzhbook_theme-1.1-py2.py3-none-any.whl", hash = "sha256:84f19993204276399da8a822791b770d23fc265c0a46bbf42b2d65fe8030f41d", size = 1010378, upload-time = "2026-04-01T03:15:33.519Z" },
 ]
 
 [[package]]
@@ -543,13 +546,13 @@ dependencies = [
 [package.optional-dependencies]
 docs = [
     { name = "mkdocs" },
-    { name = "mkdocs-gitbook" },
+    { name = "mkdocs-smzhbook-theme" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "mkdocs", marker = "extra == 'docs'", specifier = ">=1.6.0" },
-    { name = "mkdocs-gitbook", marker = "extra == 'docs'", specifier = ">=0.0.1" },
+    { name = "mkdocs-smzhbook-theme", marker = "extra == 'docs'", specifier = ">=1.1" },
     { name = "paramiko", specifier = ">=3.5.1" },
     { name = "prettytable", specifier = ">=3.16.0" },
     { name = "psutil", specifier = ">=7.0.0" },
