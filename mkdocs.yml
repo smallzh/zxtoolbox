@@ -17,6 +17,7 @@ nav:
       - 电脑OS和硬件信息: computer_info.md
       - Git分支文件管理: git_branch_file.md
       - 视频下载: video_download.md
+      - 自签SSL证书: ssl_cert.md
       - Mkdocs导航生成功能: mkdocs_nav_generator.md
       - PyPI发布流程: publish_to_pypi.md
 
