@@ -355,6 +355,9 @@ def get_provider(name: str, config: Optional[Dict[str, Any]] = None) -> DNSProvi
         raise ValueError(
             f"不支持的 DNS 提供商: {name}。支持的: {list(_PROVIDER_MAP.keys())}"
         )
+    # ManualProvider doesn't accept config in __init__
+    if name.lower() == "manual":
+        return cls()
     return cls(config)
 
 

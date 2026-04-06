@@ -4,6 +4,8 @@ import zxtoolbox.computer_info as cpi
 import zxtoolbox.pyopt_2fa as opt2fa
 import zxtoolbox.video_download as vd
 import zxtoolbox.ssl_cert as ssl
+import zxtoolbox.git_config as gc
+import zxtoolbox.config_manager as cm
 
 
 def main():
@@ -95,6 +97,59 @@ def main():
         "--output", type=str, default=None, help="输出目录路径（默认: ./out）"
     )
 
+    # ========== Config 子命令 ==========
+    config_parser = subparsers.add_parser("config", help="配置文件管理")
+    config_subparsers = config_parser.add_subparsers(
+        dest="config_command", help="配置子命令"
+    )
+
+    # config init
+    config_init_parser = config_subparsers.add_parser(
+        "init", help="交互式初始化配置文件"
+    )
+    config_init_parser.add_argument(
+        "--path",
+        type=str,
+        default=None,
+        help="配置文件路径（默认 ~/.config/zxtool.toml）",
+    )
+    config_init_parser.add_argument(
+        "--force", action="store_true", help="覆盖已存在的配置文件"
+    )
+
+    # config show
+    config_show_parser = config_subparsers.add_parser("show", help="显示当前配置内容")
+    config_show_parser.add_argument(
+        "--path",
+        type=str,
+        default=None,
+        help="配置文件路径（默认 ~/.config/zxtool.toml）",
+    )
+
+    # ========== Git 子命令 ==========
+    git_parser = subparsers.add_parser("git", help="Git 仓库配置管理")
+    git_subparsers = git_parser.add_subparsers(dest="git_command", help="Git 子命令")
+
+    # git config
+    config_parser = git_subparsers.add_parser("config", help="管理 Git 仓库 user 配置")
+    config_parser.add_argument(
+        "config_command",
+        nargs="?",
+        default=None,
+        help="子命令: check (检查) / fill (填充)",
+    )
+    config_parser.add_argument(
+        "project_dir",
+        nargs="?",
+        default=None,
+        help="项目目录路径（默认当前目录）",
+    )
+    config_parser.add_argument(
+        "--config", type=str, default=None, help="zxtool.toml 配置文件路径"
+    )
+    config_parser.add_argument("--name", type=str, default=None, help="git user.name")
+    config_parser.add_argument("--email", type=str, default=None, help="git user.email")
+
     # Let's Encrypt 证书管理参数组
     le_group = parser.add_argument_group(
         "Let's Encrypt", "Let's Encrypt ACME v2 证书管理"
@@ -149,6 +204,42 @@ def main():
             )
         else:
             mkdocs_parser.print_help()
+        return
+
+    # ========== Config 子命令分发 ==========
+    if args.command == "config":
+        config_cmd = getattr(args, "config_command", None)
+
+        if config_cmd == "init":
+            cm.interactive_init(config_path=args.path, force=args.force)
+        elif config_cmd == "show":
+            cm.show_config(config_path=args.path)
+        else:
+            config_parser.print_help()
+        return
+
+    # ========== Git 子命令分发 ==========
+    if args.command == "git":
+        git_cmd = getattr(args, "git_command", None)
+
+        if git_cmd == "config":
+            config_cmd = getattr(args, "config_command", None)
+            if config_cmd == "check":
+                result = gc.check_git_config(args.project_dir)
+                if result:
+                    print(f"name:  {result['name']}")
+                    print(f"email: {result['email']}")
+            elif config_cmd == "fill":
+                gc.fill_git_config(
+                    project_dir=args.project_dir,
+                    config_file=args.config,
+                    name=args.name,
+                    email=args.email,
+                )
+            else:
+                config_parser.print_help()
+        else:
+            git_parser.print_help()
         return
 
     if args.computer:
