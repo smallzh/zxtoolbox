@@ -1,15 +1,54 @@
 import argparse
 import sys
 import zxtoolbox.computer_info as cpi
-import zxtoolbox.git_branch_file as gbf
 import zxtoolbox.pyopt_2fa as opt2fa
 import zxtoolbox.video_download as vd
-import zxtoolbox.mkdocs_nav_generator as mng
 import zxtoolbox.ssl_cert as ssl
 
 
 def main():
     parser = argparse.ArgumentParser(description="ZX Toolbox CLI")
+    subparsers = parser.add_subparsers(dest="command", help="可用命令")
+
+    # ========== MkDocs 子命令 ==========
+    mkdocs_parser = subparsers.add_parser("mkdocs", help="MkDocs 项目管理")
+    mkdocs_subparsers = mkdocs_parser.add_subparsers(
+        dest="mkdocs_command", help="MkDocs 子命令"
+    )
+
+    # mkdocs create
+    create_parser = mkdocs_subparsers.add_parser("create", help="创建新的 MkDocs 项目")
+    create_parser.add_argument("project_dir", help="项目目录路径")
+    create_parser.add_argument(
+        "--name", type=str, default=None, help="站点名称（默认使用目录名）"
+    )
+
+    # mkdocs build
+    build_parser = mkdocs_subparsers.add_parser(
+        "build", help="构建 MkDocs 项目到指定目录"
+    )
+    build_parser.add_argument("project_dir", help="MkDocs 项目目录")
+    build_parser.add_argument("-o", "--output", type=str, default=None, help="输出目录")
+    build_parser.add_argument(
+        "-c", "--config", type=str, default=None, help="配置文件路径（相对或绝对）"
+    )
+    build_parser.add_argument(
+        "--strict", action="store_true", help="严格模式（警告视为错误）"
+    )
+
+    # mkdocs batch
+    batch_parser = mkdocs_subparsers.add_parser(
+        "batch", help="批量构建多个 MkDocs 项目"
+    )
+    batch_parser.add_argument(
+        "config_file",
+        nargs="?",
+        default=None,
+        help="TOML 配置文件路径（默认: ~/.config/zxtool.toml）",
+    )
+    batch_parser.add_argument(
+        "--dry-run", action="store_true", help="仅打印构建计划，不实际执行"
+    )
 
     # 计算机信息参数组
     computer_group = parser.add_argument_group("Computer Info", "计算机信息相关功能")
@@ -69,7 +108,7 @@ def main():
         default=None,
         help="子命令: issue / renew / status / revoke / init",
     )
-    le_group.add_argument("-d", "--domain", nargs="+", help="域名列表")
+    le_group.add_argument("--le-domain", nargs="+", help="域名列表")
     le_group.add_argument(
         "--provider", default="manual", help="DNS 提供商 (manual/cloudflare/aliyun)"
     )
@@ -83,10 +122,34 @@ def main():
     )
     le_group.add_argument("--dry-run", action="store_true", help="仅检查，不执行续签")
     le_group.add_argument(
-        "--output", type=str, default=None, help="输出目录路径（默认: ./out_le）"
+        "--le-output", type=str, default=None, help="输出目录路径（默认: ./out_le）"
     )
 
     args = parser.parse_args()
+
+    # ========== MkDocs 子命令分发 ==========
+    if args.command == "mkdocs":
+        import zxtoolbox.mkdocs_manager as mdm
+
+        mkdocs_cmd = getattr(args, "mkdocs_command", None)
+
+        if mkdocs_cmd == "create":
+            mdm.create_project(args.project_dir, site_name=args.name)
+        elif mkdocs_cmd == "build":
+            mdm.build_project(
+                project_dir=args.project_dir,
+                output_dir=args.output,
+                config_file=args.config,
+                strict=args.strict,
+            )
+        elif mkdocs_cmd == "batch":
+            mdm.batch_build(
+                config_path=args.config_file,
+                dry_run=args.dry_run,
+            )
+        else:
+            mkdocs_parser.print_help()
+        return
 
     if args.computer:
         # 调用计算机信息功能
@@ -141,17 +204,19 @@ def main():
                 return
 
         out_dir = (
-            Path(args.output).resolve() if args.output else Path("out_le").resolve()
+            Path(args.le_output).resolve()
+            if args.le_output
+            else Path("out_le").resolve()
         )
         cmd = args.le_command
 
         if cmd == "issue":
-            if not args.domain:
+            if not args.le_domain:
                 print("错误: --domain 是必需的")
                 return
             le.obtain_cert(
                 out_dir=out_dir,
-                domains=args.domain,
+                domains=args.le_domain,
                 provider=args.provider,
                 provider_config=provider_config,
                 staging=not args.production,
@@ -167,12 +232,12 @@ def main():
         elif cmd == "status":
             le.show_status(out_dir)
         elif cmd == "revoke":
-            if not args.domain:
+            if not args.le_domain:
                 print("错误: --domain 是必需的")
                 return
             le.revoke_cert(
                 out_dir=out_dir,
-                domain=args.domain[0],
+                domain=args.le_domain[0],
                 provider=args.provider,
                 provider_config=provider_config,
             )
