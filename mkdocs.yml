@@ -8,19 +8,19 @@ site_dir: site
 
 # Theme configuration
 theme:
-  name: gitbook
+  name: smzhbook
 
 # Navigation structure
 nav:
   - 首页: index.md
   - 文档:
+      - zxtool配置管理: config_manager.md
       - 电脑OS和硬件信息: computer_info.md
-      - Git分支文件管理: git_branch_file.md
-      - 视频下载: video_download.md
+      - Git配置管理: git_config.md
+      - Mkdocs构建: mkdocs_manager.md
       - 自签SSL证书: ssl_cert.md
       - Let's Encrypt证书: letsencrypt.md
-      - Mkdocs导航生成功能: mkdocs_nav_generator.md
-      - PyPI发布流程: publish_to_pypi.md
+      - 视频下载: video_download.md
 
 # Plugins
 plugins: []

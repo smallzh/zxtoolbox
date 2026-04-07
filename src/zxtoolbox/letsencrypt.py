@@ -25,7 +25,7 @@ import base64
 import hashlib
 import json
 import logging
-import sys
+import urllib
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path

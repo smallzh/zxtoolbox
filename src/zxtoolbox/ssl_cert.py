@@ -1,7 +1,6 @@
 """
 自签泛域名 SSL 证书生成器
 
-移植自 https://github.com/smallzh/ssl
 用于颁发泛域名证书，方便开发环境调试。
 
 功能：

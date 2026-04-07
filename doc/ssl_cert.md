@@ -1,6 +1,6 @@
 # 自签泛域名 SSL 证书生成器
 
-移植自 [smallzh/ssl](https://github.com/smallzh/ssl)，用于颁发泛域名证书，方便开发环境调试。
+用于颁发泛域名证书，方便开发环境调试。
 
 > **请勿用于生产环境**，生产环境请购买正式证书或使用 [Let's Encrypt](https://letsencrypt.org/) 申请免费证书。
 
