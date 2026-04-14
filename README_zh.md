@@ -2,10 +2,16 @@
 
 Window、Mac、Linux系统中，对经常做的一些重复性事情的封装
 
-## 0x01. 项目打包
+<div align="center">
+
+中文 | [英文](./README.md)
+
+</div>
+
+## 0x01. 安装
 
 ```shell
-uv sync
+uv tool install zxtoolbox
 ```
 
 ## 0x02. 目录结构

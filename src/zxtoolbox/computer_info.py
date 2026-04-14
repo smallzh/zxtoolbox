@@ -5,7 +5,7 @@ import psutil
 from cpuinfo import get_cpu_info
 from prettytable import PrettyTable
 
-from zxtoolbox import cowsay
+
 
 
 def convert_read_str(number):
@@ -59,25 +59,38 @@ def get_cpu_summary():
 
 def get_gpu_summary():
     """获取GPU摘要信息"""
+    # 优先使用 pynvml（项目已声明依赖）
     try:
-        import GPUtil
-        gpus = GPUtil.getGPUs()
-        if gpus:
-            gpu = gpus[0]
-            return f"{gpu.name}"
-    except ImportError:
+        import pynvml
+        pynvml.nvmlInit()
+        handle = pynvml.nvmlDeviceGetHandleByIndex(0)
+        name = pynvml.nvmlDeviceGetName(handle)
+        if isinstance(name, bytes):
+            name = name.decode('utf-8')
+        pynvml.nvmlShutdown()
+        return name
+    except Exception:
         pass
-    
-    # 尝试通过nvidia-smi获取
+
+    # 备选：通过nvidia-smi获取
     try:
         import subprocess
         result = subprocess.run(['nvidia-smi', '--query-gpu=name', '--format=csv,noheader'],
                               capture_output=True, text=True, timeout=2)
         if result.returncode == 0:
             return result.stdout.strip().split('\n')[0]
-    except:
+    except Exception:
         pass
     
+    # 最后尝试 GPUtil
+    try:
+        import GPUtil
+        gpus = GPUtil.getGPUs()
+        if gpus:
+            return gpus[0].name
+    except ImportError:
+        pass
+
     return "N/A"
 
 
@@ -141,25 +154,53 @@ def gpu_info():
     gpu_table = PrettyTable()
     init_table(gpu_table)
     
+    # 优先使用 pynvml（项目已声明依赖）
     try:
-        import GPUtil
-        gpus = GPUtil.getGPUs()
-        if gpus:
-            for i, gpu in enumerate(gpus):
+        import pynvml
+        pynvml.nvmlInit()
+        device_count = pynvml.nvmlDeviceGetCount()
+        if device_count > 0:
+            for i in range(device_count):
+                handle = pynvml.nvmlDeviceGetHandleByIndex(i)
+                name = pynvml.nvmlDeviceGetName(handle)
+                if isinstance(name, bytes):
+                    name = name.decode('utf-8')
+                mem_info = pynvml.nvmlDeviceGetMemoryInfo(handle)
+                temp = pynvml.nvmlDeviceGetTemperature(handle, pynvml.NVML_TEMPERATURE_GPU)
+                util = pynvml.nvmlDeviceGetUtilizationRates(handle)
+
                 gpu_table.add_divider()
-                gpu_table.add_row([f"GPU {i} Name", gpu.name])
-                gpu_table.add_row([f"GPU {i} Driver", gpu.driver])
-                gpu_table.add_row([f"GPU {i} Memory Total", convert_read_str(gpu.memoryTotal * 1024 * 1024)])
-                gpu_table.add_row([f"GPU {i} Memory Free", convert_read_str(gpu.memoryFree * 1024 * 1024)])
-                gpu_table.add_row([f"GPU {i} Memory Used", convert_read_str(gpu.memoryUsed * 1024 * 1024)])
-                gpu_table.add_row([f"GPU {i} Temperature", f"{gpu.temperature}°C"])
-                gpu_table.add_row([f"GPU {i} Load", f"{gpu.load * 100:.1f}%"])
+                gpu_table.add_row([f"GPU {i} Name", name])
+                gpu_table.add_row([f"GPU {i} Memory Total", convert_read_str(mem_info.total)])
+                gpu_table.add_row([f"GPU {i} Memory Free", convert_read_str(mem_info.free)])
+                gpu_table.add_row([f"GPU {i} Memory Used", convert_read_str(mem_info.used)])
+                gpu_table.add_row([f"GPU {i} Temperature", f"{temp}°C"])
+                gpu_table.add_row([f"GPU {i} Load", f"{util.gpu}%"])
+                gpu_table.add_row([f"GPU {i} Memory Util", f"{util.memory}%"])
+            pynvml.nvmlShutdown()
         else:
             gpu_table.add_row(["GPU", "No GPU detected"])
-    except ImportError:
-        gpu_table.add_row(["GPU", "GPUtil not installed"])
-    except Exception as e:
-        gpu_table.add_row(["GPU", f"Error: {str(e)}"])
+    except Exception:
+        # 备选：尝试 GPUtil
+        try:
+            import GPUtil
+            gpus = GPUtil.getGPUs()
+            if gpus:
+                for i, gpu in enumerate(gpus):
+                    gpu_table.add_divider()
+                    gpu_table.add_row([f"GPU {i} Name", gpu.name])
+                    gpu_table.add_row([f"GPU {i} Driver", gpu.driver])
+                    gpu_table.add_row([f"GPU {i} Memory Total", convert_read_str(gpu.memoryTotal * 1024 * 1024)])
+                    gpu_table.add_row([f"GPU {i} Memory Free", convert_read_str(gpu.memoryFree * 1024 * 1024)])
+                    gpu_table.add_row([f"GPU {i} Memory Used", convert_read_str(gpu.memoryUsed * 1024 * 1024)])
+                    gpu_table.add_row([f"GPU {i} Temperature", f"{gpu.temperature}°C"])
+                    gpu_table.add_row([f"GPU {i} Load", f"{gpu.load * 100:.1f}%"])
+            else:
+                gpu_table.add_row(["GPU", "No GPU detected"])
+        except ImportError:
+            gpu_table.add_row(["GPU", "No NVIDIA GPU detected or driver not installed"])
+        except Exception as e:
+            gpu_table.add_row(["GPU", f"Error: {str(e)}"])
     
     print('GPU info:')
     print(gpu_table)
@@ -282,7 +323,6 @@ def detailed_info():
 
 def get_all_info():
     """获取所有信息（默认行为）"""
-    cowsay("Welcome to this Computer!")
     detailed_info()
 
 

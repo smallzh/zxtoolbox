@@ -2,10 +2,16 @@
 
 A collection of tools for frequently performed repetitive tasks on Windows, Mac, and Linux systems
 
-## 0x01. Project Setup
+<div align="center">
+
+English | [Chinese](./README_zh.md)
+
+</div>
+
+## 0x01. Install
 
 ```shell
-uv sync
+uv tool install zxtoolbox
 ```
 
 ## 0x02. Directory Structure
