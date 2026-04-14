@@ -17,9 +17,10 @@ nav:
       - zxtool配置管理: config_manager.md
       - 电脑OS和硬件信息: computer_info.md
       - Git配置管理: git_config.md
-      - Mkdocs构建: mkdocs_manager.md
-      - 自签SSL证书: ssl_cert.md
+      - MkDocs构建: mkdocs_manager.md
+      - Nginx站点配置: nginx_manager.md
       - Let's Encrypt证书: letsencrypt.md
+      - 自签SSL证书: ssl_cert.md
       - 视频下载: video_download.md
       - TOTP解析: totp.md
 

@@ -345,6 +345,140 @@ class TestCliMkdocs:
             dry_run=True,
         )
 
+    @patch("zxtoolbox.mkdocs_manager.serve_project")
+    def test_mkdocs_serve(self, mock_serve, capsys):
+        """Test mkdocs serve command."""
+        with patch.object(
+            sys,
+            "argv",
+            ["zxtool", "mkdocs", "serve", "/path/to/project"],
+        ):
+            cli.main()
+        mock_serve.assert_called_once_with(
+            project_dir="/path/to/project",
+            dev_addr=None,
+            config_file=None,
+            no_livereload=False,
+        )
+
+    @patch("zxtoolbox.mkdocs_manager.serve_project")
+    def test_mkdocs_serve_with_options(self, mock_serve, capsys):
+        """Test mkdocs serve command with dev-addr and no-livereload."""
+        with patch.object(
+            sys,
+            "argv",
+            [
+                "zxtool",
+                "mkdocs",
+                "serve",
+                "/path/to/project",
+                "-a",
+                "0.0.0.0:8080",
+                "--no-livereload",
+            ],
+        ):
+            cli.main()
+        mock_serve.assert_called_once_with(
+            project_dir="/path/to/project",
+            dev_addr="0.0.0.0:8080",
+            config_file=None,
+            no_livereload=True,
+        )
+
+
+class TestCliNginx:
+    """Test CLI nginx subcommand."""
+
+    def test_nginx_no_subcommand_shows_help(self, capsys):
+        """Test nginx without subcommand shows help."""
+        with patch.object(sys, "argv", ["zxtool", "nginx"]):
+            cli.main()
+        captured = capsys.readouterr()
+        assert "nginx" in captured.out.lower()
+
+    @patch("zxtoolbox.nginx_manager.check_nginx")
+    def test_nginx_check(self, mock_check, capsys):
+        """Test nginx check command."""
+        mock_check.return_value = {
+            "available": True,
+            "version": "nginx/1.24.0",
+            "nginx_path": "/usr/sbin/nginx",
+            "config_dir": "/etc/nginx",
+            "sites_available": "/etc/nginx/sites-available",
+            "sites_enabled": "/etc/nginx/sites-enabled",
+            "conf_d": "/etc/nginx/conf.d",
+        }
+        with patch.object(sys, "argv", ["zxtool", "nginx", "check"]):
+            cli.main()
+        mock_check.assert_called_once()
+        captured = capsys.readouterr()
+        assert "1.24.0" in captured.out
+
+    @patch("zxtoolbox.nginx_manager.generate_from_config")
+    def test_nginx_generate(self, mock_generate, capsys):
+        """Test nginx generate command."""
+        mock_generate.return_value = {"example.com": "server { listen 80; }"}
+
+        with patch.object(
+            sys,
+            "argv",
+            ["zxtool", "nginx", "generate", "--config", "/path/to/zxtool.toml"],
+        ):
+            cli.main()
+        mock_generate.assert_called_once_with(
+            config_path="/path/to/zxtool.toml",
+            output_dir=None,
+            dry_run=False,
+        )
+
+    @patch("zxtoolbox.nginx_manager.generate_from_config")
+    def test_nginx_generate_dry_run(self, mock_generate, capsys):
+        """Test nginx generate command with dry-run."""
+        mock_generate.return_value = {}
+
+        with patch.object(
+            sys,
+            "argv",
+            ["zxtool", "nginx", "generate", "--dry-run"],
+        ):
+            cli.main()
+        mock_generate.assert_called_once_with(
+            config_path=None,
+            output_dir=None,
+            dry_run=True,
+        )
+
+    @patch("zxtoolbox.nginx_manager.enable_site")
+    def test_nginx_enable(self, mock_enable, capsys):
+        """Test nginx enable command."""
+        mock_enable.return_value = True
+
+        with patch.object(
+            sys, "argv", ["zxtool", "nginx", "enable", "example.com"]
+        ):
+            cli.main()
+        mock_enable.assert_called_once_with("example.com")
+
+    @patch("zxtoolbox.nginx_manager.disable_site")
+    def test_nginx_disable(self, mock_disable, capsys):
+        """Test nginx disable command."""
+        mock_disable.return_value = True
+
+        with patch.object(
+            sys, "argv", ["zxtool", "nginx", "disable", "example.com"]
+        ):
+            cli.main()
+        mock_disable.assert_called_once_with("example.com")
+
+    @patch("zxtoolbox.nginx_manager.reload_nginx")
+    def test_nginx_reload(self, mock_reload, capsys):
+        """Test nginx reload command."""
+        mock_reload.return_value = True
+
+        with patch.object(sys, "argv", ["zxtool", "nginx", "reload"]):
+            cli.main()
+        mock_reload.assert_called_once()
+
 
 class TestCliLetsEncrypt:
     """Test CLI le subcommand."""

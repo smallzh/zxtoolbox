@@ -10,6 +10,7 @@ import pytest
 from zxtoolbox.mkdocs_manager import (
     create_project,
     build_project,
+    serve_project,
     _load_batch_config,
     batch_build,
 )
@@ -143,6 +144,19 @@ class TestBuildProject:
         call_args = mock_run.call_args[0][0]
         assert str(custom_config) in call_args
 
+    @patch("zxtoolbox.mkdocs_manager.importlib.util.find_spec", return_value=None)
+    def test_build_mkdocs_not_installed(self, mock_find_spec, tmp_path, capsys):
+        """Test build when mkdocs is not installed."""
+        project_dir = tmp_path / "my-docs"
+        project_dir.mkdir()
+        (project_dir / "mkdocs.yml").write_text("site_name: Test\n")
+
+        result = build_project(str(project_dir))
+
+        assert result is False
+        captured = capsys.readouterr()
+        assert "mkdocs 未安装" in captured.out
+
 
 class TestLoadBatchConfig:
     """Test batch config loading."""
@@ -271,3 +285,99 @@ class TestBatchBuild:
 
         # Should skip the project with missing project_dir
         mock_build.assert_not_called()
+
+
+class TestServeProject:
+    """Test MkDocs project serving."""
+
+    @patch("zxtoolbox.mkdocs_manager.importlib.util.find_spec")
+    @patch("zxtoolbox.mkdocs_manager.subprocess.run")
+    def test_serve_default(self, mock_run, mock_find_spec, tmp_path, capsys):
+        """Test serve with default settings."""
+        mock_find_spec.return_value = MagicMock()  # mkdocs is installed
+        mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+
+        project_dir = tmp_path / "my-docs"
+        project_dir.mkdir()
+        (project_dir / "mkdocs.yml").write_text("site_name: Test\n")
+
+        serve_project(str(project_dir))
+
+        mock_run.assert_called_once()
+        cmd = mock_run.call_args[0][0]
+        assert "-m" in cmd
+        assert "mkdocs" in cmd
+        assert "serve" in cmd
+        assert "--no-livereload" not in cmd
+
+    @patch("zxtoolbox.mkdocs_manager.importlib.util.find_spec")
+    @patch("zxtoolbox.mkdocs_manager.subprocess.run")
+    def test_serve_with_dev_addr(self, mock_run, mock_find_spec, tmp_path, capsys):
+        """Test serve with custom dev address."""
+        mock_find_spec.return_value = MagicMock()
+        mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+
+        project_dir = tmp_path / "my-docs"
+        project_dir.mkdir()
+        (project_dir / "mkdocs.yml").write_text("site_name: Test\n")
+
+        serve_project(str(project_dir), dev_addr="0.0.0.0:8080")
+
+        cmd = mock_run.call_args[0][0]
+        assert "--dev-addr" in cmd
+        assert "0.0.0.0:8080" in cmd
+
+    @patch("zxtoolbox.mkdocs_manager.importlib.util.find_spec")
+    @patch("zxtoolbox.mkdocs_manager.subprocess.run")
+    def test_serve_no_livereload(self, mock_run, mock_find_spec, tmp_path, capsys):
+        """Test serve with livereload disabled."""
+        mock_find_spec.return_value = MagicMock()
+        mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+
+        project_dir = tmp_path / "my-docs"
+        project_dir.mkdir()
+        (project_dir / "mkdocs.yml").write_text("site_name: Test\n")
+
+        serve_project(str(project_dir), no_livereload=True)
+
+        cmd = mock_run.call_args[0][0]
+        assert "--no-livereload" in cmd
+
+    @patch("zxtoolbox.mkdocs_manager.importlib.util.find_spec")
+    @patch("zxtoolbox.mkdocs_manager.subprocess.run")
+    def test_serve_custom_config(self, mock_run, mock_find_spec, tmp_path, capsys):
+        """Test serve with custom config file."""
+        mock_find_spec.return_value = MagicMock()
+        mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+
+        project_dir = tmp_path / "my-docs"
+        project_dir.mkdir()
+        custom_config = project_dir / "custom.yml"
+        custom_config.write_text("site_name: Custom\n")
+
+        serve_project(str(project_dir), config_file="custom.yml")
+
+        cmd = mock_run.call_args[0][0]
+        assert str(custom_config) in cmd
+
+    def test_serve_missing_config(self, tmp_path, capsys):
+        """Test serve with missing config file."""
+        project_dir = tmp_path / "my-docs"
+        project_dir.mkdir()
+
+        result = serve_project(str(project_dir), config_file="nonexistent.yml")
+
+        assert result is None
+
+    @patch("zxtoolbox.mkdocs_manager.importlib.util.find_spec", return_value=None)
+    def test_serve_mkdocs_not_installed(self, mock_find_spec, tmp_path, capsys):
+        """Test serve when mkdocs is not installed."""
+        project_dir = tmp_path / "my-docs"
+        project_dir.mkdir()
+        (project_dir / "mkdocs.yml").write_text("site_name: Test\n")
+
+        result = serve_project(str(project_dir))
+
+        assert result is None
+        captured = capsys.readouterr()
+        assert "mkdocs 未安装" in captured.out

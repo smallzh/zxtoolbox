@@ -25,8 +25,6 @@
 - `acme`: ACME 协议（Let's Encrypt）
 - `cryptography`: 加密功能
 - `requests`: HTTP 请求
-
-### 可选依赖
 - `mkdocs`: 文档站点构建
 - `mkdocs-smzhbook-theme`: MkDocs 主题
 

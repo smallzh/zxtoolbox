@@ -61,13 +61,8 @@ toolbox/
 | acme | ACME protocol (Let's Encrypt) | [github.com](https://github.com/certbot/certbot) |
 | cryptography | Cryptographic functions | [cryptography.io](https://cryptography.io/) |
 | requests | HTTP requests | [requests.readthedocs.io](https://requests.readthedocs.io/) |
-
-### Optional Dependencies
-
-| Package | Purpose | Installation |
-|---------|---------|--------------|
-| mkdocs | Documentation site building | `uv sync --extra docs` |
-| mkdocs-smzhbook-theme | MkDocs theme | `uv sync --extra docs` |
+| mkdocs | Documentation site building | [mkdocs.org](https://www.mkdocs.org/) |
+| mkdocs-smzhbook-theme | MkDocs theme | [github.com](https://github.com/smallzh/mkdocs-smzhbook-theme) |
 
 ## 0x04. Running Unit Tests
 

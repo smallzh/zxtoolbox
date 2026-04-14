@@ -9,7 +9,8 @@ Window、Mac、Linux系统中,对经常做的一些重复性事情的封装
 - **配置文件管理**: 交互式生成和管理全局 zxtool.toml 配置文件
 - **自签 SSL 证书**: 生成泛域名自签证书,支持多域名和 SAN,方便开发调试
 - **Let's Encrypt 证书**: 通过 ACME v2 协议获取免费证书,支持 DNS-01 自动验证和续签
-- **MkDocs 项目管理**: 批量构建和发布 MkDocs 文档站点
+- **MkDocs 项目管理**: 批量构建和发布 MkDocs 文档站点,支持开发服务器预览
+- **Nginx 站点配置**: 根据配置自动生成和管理 Nginx 站点配置,支持 HTTPS 和批量发布
 - **TOTP 2FA 解析**: 解析 TOTP 双因素认证密钥
 - **在线视频下载**: 基于 yt-dlp 下载在线视频
 
@@ -38,7 +39,8 @@ zxtool --help
 | `ssl` | 自签 SSL 证书生成 | `zxtool ssl cert -d example.dev` |
 | `totp` | TOTP 双因素认证解析 | `zxtool totp -k SECRET_KEY` |
 | `video` | 在线视频下载 | `zxtool video -u https://...` |
-| `mkdocs` | MkDocs 项目管理 | `zxtool mkdocs batch` |
+| `mkdocs` | MkDocs 项目管理 | `zxtool mkdocs serve ./my-docs` |
+| `nginx` | Nginx 站点配置管理 | `zxtool nginx generate` |
 | `config` | 配置文件管理 | `zxtool config init` |
 | `git` | Git 仓库管理（配置/拉取） | `zxtool git config fill` / `zxtool git pull` |
 
@@ -84,17 +86,12 @@ toolbox/
 | prettytable | 表格美化 | [github.com](https://github.com/jazzband/prettytable) |
 | psutil | 系统信息 | [psutil.readthedocs.io](https://psutil.readthedocs.io/) |
 | py-cpuinfo | CPU 信息 | [github.com](https://github.com/workhorsy/py-cpuinfo) |
-| pynvml | NVIDIA GPU 信息 | [github.com](https://github.com/gpuopenanalytics/pynvml) |
+| nvidia-ml-py | NVIDIA GPU 信息 | [github.com](https://github.com/NVIDIA/nvidia-ml-py) |
 | pyotp | 2FA 一次性密码 | [github.com](https://github.com/pyauth/pyotp) |
 | yt-dlp | 视频下载 | [github.com](https://github.com/yt-dlp/yt-dlp) |
 | pyyaml | YAML 解析 | [pyyaml.org](https://pyyaml.org/) |
 | acme | ACME 协议（Let's Encrypt） | [github.com](https://github.com/certbot/certbot) |
 | cryptography | 加密功能 | [cryptography.io](https://cryptography.io/) |
 | requests | HTTP 请求 | [requests.readthedocs.io](https://requests.readthedocs.io/) |
-
-### 可选依赖
-
-| 包名 | 用途 | 安装方式 |
-|------|------|----------|
-| mkdocs | 文档站点构建 | `uv sync --extra docs` |
-| mkdocs-smzhbook-theme | MkDocs 主题 | `uv sync --extra docs` |
+| mkdocs | 文档站点构建 | [mkdocs.org](https://www.mkdocs.org/) |
+| mkdocs-smzhbook-theme | MkDocs smzhbook 主题 | [github.com](https://github.com/smallzh/mkdocs-smzhbook-theme) |

@@ -121,6 +121,69 @@ def main():
         "--dry-run", action="store_true", help="仅打印构建计划，不实际执行"
     )
 
+    # mkdocs serve
+    mkdocs_serve_parser = mkdocs_subparsers.add_parser(
+        "serve", help="启动 MkDocs 开发服务器预览文档"
+    )
+    mkdocs_serve_parser.add_argument("project_dir", help="MkDocs 项目目录")
+    mkdocs_serve_parser.add_argument(
+        "-a", "--dev-addr", type=str, default=None,
+        help="开发服务器地址（格式: IP:PORT，默认 127.0.0.1:8000）"
+    )
+    mkdocs_serve_parser.add_argument(
+        "-c", "--config", type=str, default=None,
+        help="配置文件路径（相对或绝对）"
+    )
+    mkdocs_serve_parser.add_argument(
+        "--no-livereload", action="store_true",
+        help="禁用热重载功能"
+    )
+
+    # ========== nginx 子命令 ==========
+    nginx_parser = subparsers.add_parser("nginx", help="Nginx 站点配置管理")
+    nginx_subparsers = nginx_parser.add_subparsers(
+        dest="nginx_command", help="Nginx 子命令"
+    )
+
+    # nginx check
+    nginx_check_parser = nginx_subparsers.add_parser(
+        "check", help="检查 Nginx 是否可用及配置目录"
+    )
+
+    # nginx generate
+    nginx_generate_parser = nginx_subparsers.add_parser(
+        "generate", help="根据配置文件生成 Nginx 站点配置"
+    )
+    nginx_generate_parser.add_argument(
+        "--config", type=str, default=None,
+        help="zxtool.toml 配置文件路径（默认: ~/.config/zxtool.toml）"
+    )
+    nginx_generate_parser.add_argument(
+        "-o", "--output", type=str, default=None,
+        help="配置文件输出目录"
+    )
+    nginx_generate_parser.add_argument(
+        "--dry-run", action="store_true",
+        help="仅打印生成计划，不实际写入文件"
+    )
+
+    # nginx enable
+    nginx_enable_parser = nginx_subparsers.add_parser(
+        "enable", help="启用 Nginx 站点配置（创建符号链接）"
+    )
+    nginx_enable_parser.add_argument("domain", help="站点域名")
+
+    # nginx disable
+    nginx_disable_parser = nginx_subparsers.add_parser(
+        "disable", help="禁用 Nginx 站点配置（移除符号链接）"
+    )
+    nginx_disable_parser.add_argument("domain", help="站点域名")
+
+    # nginx reload
+    nginx_reload_parser = nginx_subparsers.add_parser(
+        "reload", help="重载 Nginx 配置"
+    )
+
     # ========== config 子命令 ==========
     config_parser = subparsers.add_parser("config", help="配置文件管理")
     config_subparsers = config_parser.add_subparsers(
@@ -309,8 +372,49 @@ def main():
                 config_path=args.config_file,
                 dry_run=args.dry_run,
             )
+        elif mkdocs_cmd == "serve":
+            mdm.serve_project(
+                project_dir=args.project_dir,
+                dev_addr=args.dev_addr,
+                config_file=args.config,
+                no_livereload=args.no_livereload,
+            )
         else:
             mkdocs_parser.print_help()
+        return
+
+    # ========== nginx 子命令分发 ==========
+    if args.command == "nginx":
+        import zxtoolbox.nginx_manager as ngm
+
+        nginx_cmd = getattr(args, "nginx_command", None)
+
+        if nginx_cmd == "check":
+            info = ngm.check_nginx()
+            if info["available"]:
+                print(f"Nginx 版本:      {info.get('version', '未知')}")
+                print(f"Nginx 路径:      {info.get('nginx_path', '未知')}")
+                print(f"配置目录:        {info.get('config_dir', '未知')}")
+                print(f"sites-available: {info.get('sites_available', '不存在')}")
+                print(f"sites-enabled:   {info.get('sites_enabled', '不存在')}")
+                print(f"conf.d:          {info.get('conf_d', '不存在')}")
+            else:
+                print("[ERROR] Nginx 未安装")
+                print("提示: 请先安装 Nginx")
+        elif nginx_cmd == "generate":
+            ngm.generate_from_config(
+                config_path=args.config,
+                output_dir=args.output,
+                dry_run=args.dry_run,
+            )
+        elif nginx_cmd == "enable":
+            ngm.enable_site(args.domain)
+        elif nginx_cmd == "disable":
+            ngm.disable_site(args.domain)
+        elif nginx_cmd == "reload":
+            ngm.reload_nginx()
+        else:
+            nginx_parser.print_help()
         return
 
     # ========== config 子命令分发 ==========

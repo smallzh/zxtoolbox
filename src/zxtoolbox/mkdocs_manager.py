@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+import importlib.util
 import os
 import subprocess
 import sys
@@ -110,20 +111,28 @@ def build_project(
         print(f"[ERROR] 配置文件不存在: {config_path}")
         return False
 
+    # 检查 mkdocs 是否已安装
+    if importlib.util.find_spec("mkdocs") is None:
+        print(
+            "[ERROR] mkdocs 未安装，请运行: pip install mkdocs 或 uv sync"
+        )
+        return False
+
     # 构建命令
     cmd = [sys.executable, "-m", "mkdocs", "build", "-f", str(config_path)]
 
+    resolved_output_dir: str | None = None
     if output_dir:
-        output_path = Path(output_dir).resolve()
-        cmd.extend(["-d", str(output_path)])
+        resolved_output_dir = str(Path(output_dir).resolve())
+        cmd.extend(["-d", resolved_output_dir])
 
     if strict:
         cmd.append("--strict")
 
     print(f"构建项目: {project_path}")
     print(f"配置文件: {config_path}")
-    if output_dir:
-        print(f"输出目录: {output_path}")
+    if resolved_output_dir:
+        print(f"输出目录: {resolved_output_dir}")
 
     try:
         result = subprocess.run(
@@ -148,12 +157,77 @@ def build_project(
 
     except FileNotFoundError:
         print(
-            "[ERROR] mkdocs 未安装，请运行: pip install mkdocs 或 uv sync --extra docs"
+            "[ERROR] mkdocs 未安装，请运行: pip install mkdocs 或 uv sync"
         )
         return False
     except Exception as e:
         print(f"[ERROR] 构建异常: {e}")
         return False
+
+
+def serve_project(
+    project_dir: str | Path,
+    dev_addr: str | None = None,
+    config_file: str | Path | None = None,
+    no_livereload: bool = False,
+) -> None:
+    """启动 MkDocs 开发服务器进行预览。
+
+    本质是运行 ``mkdocs serve``，启动一个带热重载功能的本地开发服务器，
+    用于在编写文档时实时预览效果。
+
+    Args:
+        project_dir: MkDocs 项目目录（包含 mkdocs.yml）
+        dev_addr: 开发服务器地址，格式为 IP:PORT（默认 127.0.0.1:8000）
+        config_file: 配置文件路径（相对或绝对路径），默认使用项目目录下的 mkdocs.yml
+        no_livereload: 是否禁用热重载功能
+    """
+    project_path = Path(project_dir).resolve()
+
+    # 确定配置文件路径
+    if config_file:
+        config_path = Path(config_file)
+        if not config_path.is_absolute():
+            config_path = project_path / config_path
+    else:
+        config_path = project_path / "mkdocs.yml"
+
+    if not config_path.exists():
+        print(f"[ERROR] 配置文件不存在: {config_path}")
+        return
+
+    # 检查 mkdocs 是否已安装
+    if importlib.util.find_spec("mkdocs") is None:
+        print(
+            "[ERROR] mkdocs 未安装，请运行: pip install mkdocs 或 uv sync"
+        )
+        return
+
+    # 构建命令
+    cmd = [sys.executable, "-m", "mkdocs", "serve", "-f", str(config_path)]
+
+    if dev_addr:
+        cmd.extend(["--dev-addr", dev_addr])
+
+    if no_livereload:
+        cmd.append("--no-livereload")
+
+    print(f"启动开发服务器: {project_path}")
+    print(f"配置文件: {config_path}")
+    if dev_addr:
+        print(f"服务地址: {dev_addr}")
+    else:
+        print("服务地址: 127.0.0.1:8000 (默认)")
+    print()
+
+    try:
+        subprocess.run(cmd, cwd=str(project_path), check=False)
+    except FileNotFoundError:
+        print(
+            "[ERROR] mkdocs 未安装，请运行: pip install mkdocs 或 uv sync"
+        )
+    except KeyboardInterrupt:
+        print("\n[OK] 开发服务器已停止")
 
 
 def _load_batch_config(config_path: str | Path) -> list[dict[str, Any]]:

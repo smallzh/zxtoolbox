@@ -136,8 +136,43 @@ zxtool mkdocs batch ./batch-config.toml
   [OK] /path/to/project3
 ```
 
-## 0x03. 注意事项
+## 0x03. 预览文档
 
-- MkDocs 为可选依赖，使用前需安装：`uv sync --extra docs`
+### 1. 启动开发服务器
+
+```bash
+zxtool mkdocs serve <项目目录> [-a <地址:端口>] [-c <配置文件>] [--no-livereload]
+```
+
+| 参数 | 说明 |
+|------|------|
+| `project_dir` | MkDocs 项目目录（包含 mkdocs.yml） |
+| `-a, --dev-addr` | 开发服务器地址（格式: IP:PORT，默认 127.0.0.1:8000） |
+| `-c, --config` | 配置文件路径（相对或绝对路径，默认 mkdocs.yml） |
+| `--no-livereload` | 禁用热重载功能 |
+
+**示例：**
+
+```bash
+# 在默认地址启动预览
+zxtool mkdocs serve ./my-docs
+
+# 指定地址和端口
+zxtool mkdocs serve ./my-docs -a 0.0.0.0:8080
+
+# 使用自定义配置文件
+zxtool mkdocs serve ./my-docs -c custom-mkdocs.yml
+
+# 禁用热重载
+zxtool mkdocs serve ./my-docs --no-livereload
+```
+
+开发服务器启动后，在浏览器中访问指定地址即可实时预览文档。编辑源文件后，页面会自动刷新（热重载模式下）。按 `Ctrl+C` 停止服务器。
+
+## 0x04. 注意事项
+
+- MkDocs 为核心依赖，安装 zxtoolbox 时自动安装（`uv sync` 或 `uv tool install zxtoolbox`）
+- MkDocs 主题（如 smzhbook）为可选依赖，需要额外安装：`uv sync --extra docs`
 - 输出目录不存在时会自动创建
 - 批量构建时，单个项目失败不影响其他项目的构建
+
