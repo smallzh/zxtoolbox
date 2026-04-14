@@ -1,60 +1,24 @@
 # zxtoolbox
 
-Window、Mac、Linux系统中,对经常做的一些重复性事情的封装
+Window、Mac、Linux系统中，对经常做的一些重复性事情的封装
 
-## 0x01. 功能特性
+## 0x01. 项目打包
 
-- **计算机信息获取**: 获取计算机的 CPU、GPU、内存、硬盘等相关信息
-- **Git 仓库配置**: 管理 Git 仓库的 user.name 和 user.email 配置,支持自动填充
-- **配置文件管理**: 交互式生成和管理全局 zxtool.toml 配置文件
-- **自签 SSL 证书**: 生成泛域名自签证书,支持多域名和 SAN,方便开发调试
-- **Let's Encrypt 证书**: 通过 ACME v2 协议获取免费证书,支持 DNS-01 自动验证和续签
-- **MkDocs 项目管理**: 批量构建和发布 MkDocs 文档站点
-- **TOTP 2FA 解析**: 解析 TOTP 双因素认证密钥
-- **在线视频下载**: 基于 yt-dlp 下载在线视频
-
-## 0x02. 快速开始
-
-### 安装
-
-```bash
-uv tool install zxtoolbox
+```shell
+uv sync
 ```
 
-### 使用
-
-所有功能通过子命令调用：
-
-```bash
-zxtool --help
-```
-
-### 命令一览
-
-| 子命令 | 说明 | 示例 |
-|--------|------|------|
-| `ci` | 显示计算机信息（默认简短） | `zxtool ci` / `zxtool ci --all` |
-| `le` | Let's Encrypt 证书管理 | `zxtool le issue -d example.com` |
-| `ssl` | 自签 SSL 证书生成 | `zxtool ssl cert -d example.dev` |
-| `totp` | TOTP 双因素认证解析 | `zxtool totp -k SECRET_KEY` |
-| `video` | 在线视频下载 | `zxtool video -u https://...` |
-| `mkdocs` | MkDocs 项目管理 | `zxtool mkdocs batch` |
-| `config` | 配置文件管理 | `zxtool config init` |
-| `git` | Git 仓库管理（配置/拉取） | `zxtool git config fill` / `zxtool git pull` |
-
-## 0x03. 目录结构
-
+## 0x02. 目录结构
 ```text
 toolbox/
 ├── doc/                    # 文档目录
 │   ├── index.md           # 项目文档
-│   ├── ci.md              # 计算机信息获取文档
+│   ├── computer_info.md   # 计算机信息获取文档
 │   ├── config_manager.md  # 配置文件管理文档
 │   ├── git_config.md      # Git 仓库配置文档
 │   ├── letsencrypt.md     # Let's Encrypt 证书文档
 │   ├── mkdocs_manager.md  # MkDocs 项目管理文档
 │   ├── ssl_cert.md        # SSL 证书生成文档
-│   ├── totp.md            # TOTP 2FA 文档
 │   └── video_download.md  # 视频下载文档
 ├── src/                   # 源代码目录
 │   └── zxtoolbox/         # 主包
@@ -74,7 +38,7 @@ toolbox/
 └── uv.lock               # uv 锁定的依赖版本
 ```
 
-## 0x04. 依赖的包
+## 0x03. 依赖的包
 
 ### 核心依赖
 
@@ -98,3 +62,42 @@ toolbox/
 |------|------|----------|
 | mkdocs | 文档站点构建 | `uv sync --extra docs` |
 | mkdocs-smzhbook-theme | MkDocs 主题 | `uv sync --extra docs` |
+
+## 0x04. 运行单元测试
+
+项目使用 `pytest` 作为测试框架，测试文件位于 `src/zxtoolbox/test/` 目录。
+
+### 安装测试依赖
+
+```shell
+uv add --dev pytest
+```
+
+### 运行全部测试
+
+```shell
+uv run pytest src/zxtoolbox/test/ -v
+```
+
+### 运行单个测试文件
+
+```shell
+uv run pytest src/zxtoolbox/test/test_cli.py -v
+```
+
+### 运行指定测试类或方法
+
+```shell
+# 运行指定测试类
+uv run pytest src/zxtoolbox/test/test_cli.py::TestCliGit -v
+
+# 运行指定测试方法
+uv run pytest src/zxtoolbox/test/test_cli.py::TestCliGit::test_git_config_check -v
+```
+
+### 查看测试覆盖率
+
+```shell
+uv add --dev pytest-cov
+uv run pytest src/zxtoolbox/test/ --cov=zxtoolbox --cov-report=term-missing
+```

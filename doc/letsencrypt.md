@@ -2,17 +2,18 @@
 
 参考 [acme.sh](https://github.com/acmesh-official/acme.sh) 实现，通过 ACME v2 协议从 Let's Encrypt 获取免费证书。
 
-## 特点
+## 0x01. 特点
 
 1. 支持泛域名证书（`*.example.com`），通过 DNS-01 验证
 2. 支持多域名和泛二级域名混合签发
 3. 可插拔 DNS 提供商：手动 / Cloudflare / 阿里云
 4. 证书到期自动检测和续签
-5. 支持定期执行（cron / systemd timer）
+5. 支持配置文件驱动的批量签发和续签
+6. 支持定期执行（cron / systemd timer）
 
 > **生产环境注意**：Let's Encrypt 有速率限制。开发测试时默认使用测试环境（staging），确认无误后再加 `--production` 参数。
 
-## 系统要求
+## 0x02. 系统要求
 
 - Linux / macOS / Windows
 - 已安装 `openssl`
@@ -22,15 +23,30 @@
 uv add acme cryptography requests pyOpenSSL josepy
 ```
 
-## 1. 签发证书
+## 0x03. 命令格式
 
-### 1.1 手动 DNS 验证（测试环境）
+```bash
+zxtool le <子命令> [选项]
+```
+
+| 子命令 | 说明 |
+|--------|------|
+| `issue` | 签发新证书 |
+| `renew` | 续签即将到期的证书 |
+| `batch` | 根据配置文件批量签发/续签证书 |
+| `status` | 查看证书状态 |
+| `revoke` | 吊销证书 |
+| `init` | 初始化输出目录 |
+
+## 0x04. 签发证书
+
+### 4.1 手动 DNS 验证（测试环境）
 
 适用于不支持 API 的 DNS 提供商，或一次性使用场景。
 
 ```bash
 # 测试环境签发（默认 staging，不会触及生产速率限制）
-zxtool --le issue -d example.com "*.example.com"
+zxtool le issue -d example.com "*.example.com"
 ```
 
 运行后会提示你手动添加 DNS TXT 记录：
@@ -50,12 +66,12 @@ zxtool --le issue -d example.com "*.example.com"
   添加完成后按 Enter 继续...
 ```
 
-### 1.2 Cloudflare 自动 DNS
+### 4.2 Cloudflare 自动 DNS
 
 通过 Cloudflare API 自动管理 DNS 记录，无需手动操作。
 
 ```bash
-zxtool --le issue \
+zxtool le issue \
   -d example.com "*.example.com" \
   --provider cloudflare \
   --provider-config '{"api_token":"你的API_TOKEN","zone_id":"你的ZONE_ID"}' \
@@ -68,12 +84,12 @@ zxtool --le issue \
 2. 创建 Token，使用 "Edit zone DNS" 模板
 3. 复制 Token 和 Zone ID（在域名 Overview 页面底部）
 
-### 1.3 阿里云 DNS 自动签发
+### 4.3 阿里云 DNS 自动签发
 
 通过阿里云云解析 DNS API 自动管理 DNS 记录。
 
 ```bash
-zxtool --le issue \
+zxtool le issue \
   -d example.com "*.example.com" \
   --provider aliyun \
   --provider-config '{"access_key_id":"你的AK","access_key_secret":"你的SK"}' \
@@ -81,7 +97,7 @@ zxtool --le issue \
   --email admin@example.com
 ```
 
-### 参数说明
+### 签发参数说明
 
 | 参数 | 说明 | 默认值 |
 |------|------|--------|
@@ -93,70 +109,108 @@ zxtool --le issue \
 | `--key-size` | RSA 密钥长度：`2048` 或 `4096` | `2048` |
 | `--output` | 输出目录 | `./out_le` |
 
-## 2. 查看证书状态
+## 0x05. 配置驱动的批量签发
+
+通过 `zxtool.toml` 配置文件，实现域名证书的自动签发和续签。
+
+### 5.1 配置文件示例
+
+```toml
+# Let's Encrypt 全局配置
+[letsencrypt]
+provider = "cloudflare"
+output_dir = "/etc/letsencrypt"
+staging = false
+email = "admin@example.com"
+
+[letsencrypt.provider_config]
+api_token = "your_cloudflare_api_token"
+zone_id = "your_cloudflare_zone_id"
+
+# 项目配置（domain 字段关联域名证书）
+[[projects]]
+project_dir = "/var/www/myblog"
+domain = "myblog.example.com"
+output_dir = "/var/www/myblog/site"
+
+[[projects]]
+project_dir = "/var/www/api"
+domain = "*.api.example.com"
+```
+
+### 5.2 批量签发证书
 
 ```bash
-zxtool --le status
+# 使用默认配置文件 (~/.config/zxtool.toml) 批量签发
+zxtool le batch
+
+# 仅预览计划，不实际执行
+zxtool le batch --dry-run
+
+# 指定配置文件路径
+zxtool le batch --le-config /path/to/zxtool.toml
 ```
 
-输出示例：
+**输出示例：**
 
 ```
-域名                             状态         剩余天数     过期日期       环境
----------------------------------------------------------------------------
-example.com                    有效         75         2026-06-15   staging
-myapp.dev                      即将过期      12         2026-04-20   production
+============================================================
+  Let's Encrypt 批量证书签发
+  共 2 个项目需要签发证书
+============================================================
+
+--- [1/2] myblog.example.com ---
+  域名列表: ['myblog.example.com']
+  DNS 提供商: cloudflare
+  输出目录: /etc/letsencrypt
+  环境: 生产
+  邮箱: admin@example.com
+
+步骤 1/4: 注册 ACME 账户...
+步骤 2/4: 创建订单并提交 CSR...
+步骤 3/4: 完成 DNS-01 验证...
+步骤 4/4: 保存证书文件...
+  证书签发成功!
+
+--- [2/2] *.api.example.com ---
+  域名列表: ['*.api.example.com', 'api.example.com']
+  ...
+
+============================================================
+  批量签发完成: 2/2 成功
+============================================================
+  [OK] myblog.example.com
+  [OK] *.api.example.com
 ```
 
-## 3. 续签证书
+> **泛域名说明**: 当 `domain = "*.example.com"` 时，会自动将基础域名 `example.com` 一并包含在证书中。
 
-### 3.1 检查续签（dry-run）
+### 5.3 自动续签
 
-仅检查哪些证书需要续签，不执行实际操作。
+配置了域名的项目，可通过 cron 或 systemd timer 实现自动续签：
 
 ```bash
-zxtool --le renew --dry-run
-```
-
-### 3.2 执行续签
-
-自动续签 30 天内到期的证书。
-
-```bash
-# 手动续签（需要 DNS 提供商配置）
-zxtool --le renew \
-  --provider-config '{"api_token":"xxx","zone_id":"yyy"}'
-```
-
-### 3.3 定期自动续签
-
-通过 cron 定时任务实现自动续签：
-
-```bash
-# 编辑 crontab
-crontab -e
-
-# 添加以下行（每天凌晨 3 点检查并续签）
-0 3 * * * cd /path/to/zxtoolbox && uv run zxtool --le renew --provider-config '{"api_token":"xxx","zone_id":"yyy"}' >> /var/log/le-renew.log 2>&1
+# 定期检查并续签（每天凌晨 3 点）
+0 3 * * * cd /path/to/project && uv run zxtool le batch >> /var/log/le-batch.log 2>&1
 ```
 
 或使用 systemd timer：
 
 ```ini
-# /etc/systemd/system/le-renew.service
+# /etc/systemd/system/le-batch.service
 [Unit]
-Description=Let's Encrypt Certificate Renewal
+Description=Let's Encrypt Batch Certificate Management
 
 [Service]
 Type=oneshot
-ExecStart=/path/to/zxtoolbox/.venv/bin/zxtool --le renew --provider-config '{"api_token":"xxx","zone_id":"yyy"}'
-WorkingDirectory=/path/to/zxtoolbox
+ExecStart=/path/to/zxtool le batch
+WorkingDirectory=/path/to/project
 ```
 
 ```ini
-# /etc/systemd/system/le-renew.timer
+# /etc/systemd/system/le-batch.timer
 [Unit]
-Description=Run LE renewal daily
+Description=Run LE batch daily
 
 [Timer]
 OnCalendar=daily
@@ -167,24 +221,71 @@ WantedBy=timers.target
 ```
 
 ```bash
-systemctl enable --now le-renew.timer
+systemctl enable --now le-batch.timer
 ```
 
-## 4. 吊销证书
+## 0x06. 查看证书状态
+
+```bash
+zxtool le status
+```
+
+输出示例：
+
+```
+域名                             状态         剩余天数     过期日期       环境
+---------------------------------------------------------------------------
+example.com                    有效         75         2026-06-15   staging
+myblog.example.com            即将过期      12         2026-04-20   production
+```
+
+## 0x07. 续签证书
+
+### 7.1 检查续签（dry-run）
+
+仅检查哪些证书需要续签，不执行实际操作。
+
+```bash
+zxtool le renew --dry-run
+```
+
+### 7.2 执行续签
+
+自动续签 30 天内到期的证书。
+
+```bash
+# 手动续签（需要 DNS 提供商配置）
+zxtool le renew \
+  --provider-config '{"api_token":"xxx","zone_id":"yyy"}'
+```
+
+### 7.3 定期自动续签
+
+通过 cron 定时任务实现自动续签：
+
+```bash
+# 编辑 crontab
+crontab -e
+
+# 添加以下行（每天凌晨 3 点检查并续签）
+0 3 * * * cd /path/to/zxtoolbox && uv run zxtool le renew --provider-config '{"api_token":"xxx","zone_id":"yyy"}' >> /var/log/le-renew.log 2>&1
+```
+
+## 0x08. 吊销证书
 
 当私钥泄露或不再需要某个证书时，可以主动吊销。
 
 ```bash
-zxtool --le revoke -d example.com
+zxtool le revoke -d example.com
 ```
 
-## 5. 初始化输出目录
+## 0x09. 初始化输出目录
 
 ```bash
-zxtool --le init
+zxtool le init
 ```
 
-## 生成的证书文件
+## 0x0a. 生成的证书文件
 
 ```
 out_le/
@@ -199,7 +300,7 @@ out_le/
     └── example.com.key.pem      # 证书私钥
 ```
 
-## nginx 配置示例
+## 0x0b. nginx 配置示例
 
 ```nginx
 server {
@@ -218,7 +319,7 @@ server {
 }
 ```
 
-## Let's Encrypt 限制
+## 0x0c. Let's Encrypt 限制
 
 | 限制项 | 值 |
 |--------|-----|
@@ -228,7 +329,7 @@ server {
 | 每证书最多域名数 | 100 个 |
 | 泛域名验证方式 | 仅 DNS-01 |
 
-## 常见问题
+## 0x0d. 常见问题
 
 ### Q1: 测试环境证书和正式证书有什么区别？
 
@@ -247,3 +348,7 @@ server {
 ### Q4: 如何切换测试环境和生产环境？
 
 不加 `--production` 默认为测试环境，加上则为生产环境。账户密钥是分开的，互不影响。
+
+### Q5: 批量签发时域名配置在哪里？
+
+在 `zxtool.toml` 配置文件的 `[[projects]]` 节点中使用 `domain` 字段指定域名，`[letsencrypt]` 节点配置全局 DNS 提供商信息。运行 `zxtool le batch` 即可自动读取配置并签发证书。

@@ -1,6 +1,32 @@
 """zxtool.toml 配置文件管理模块。
 
-生成和管理 ~/.config/zxtool.toml 配置文件，支持 MkDocs 和 Git 配置。
+生成和管理 ~/.config/zxtool.toml 配置文件，支持 MkDocs 项目、
+Git 用户和 Let's Encrypt 证书配置。
+
+配置文件结构::
+
+    # Let's Encrypt 全局配置
+    [letsencrypt]
+    provider = "cloudflare"
+    output_dir = "/path/to/certs"
+    staging = true
+    email = "admin@example.com"
+
+    [letsencrypt.provider_config]
+    api_token = "xxx"
+    zone_id = "yyy"
+
+    # 项目配置
+    [[projects]]
+    project_dir = "/path/to/project1"
+    domain = "example.com"
+    output_dir = "/output"
+
+    # Git 用户配置
+    [git]
+    [[git.user]]
+    name = "John"
+    email = "john@example.com"
 """
 
 from __future__ import annotations
@@ -8,6 +34,9 @@ from __future__ import annotations
 import os
 import sys
 from pathlib import Path
+from typing import Any
+
+import tomllib
 
 
 # 默认配置文件路径
@@ -32,21 +61,26 @@ def _escape_toml_string(value: str) -> str:
     return f'"{value}"'
 
 
-def _generate_mkdocs_section(projects: list[dict]) -> str:
-    """生成 MkDocs 配置部分。
+def _generate_projects_section(projects: list[dict]) -> str:
+    """生成项目配置部分（包含 MkDocs 和域名配置）。
 
     Args:
-        projects: 项目配置列表，每个元素包含 project_dir, output_dir 等。
+        projects: 项目配置列表，每个元素可包含：
+            - project_dir: 项目目录（必填）
+            - output_dir: MkDocs 输出目录
+            - config_file: MkDocs 配置文件
+            - strict: 是否启用严格模式
+            - domain: 项目的域名（单个字符串，支持泛域名如 *.example.com）
 
     Returns:
-        TOML 格式的 MkDocs 配置字符串。
+        TOML 格式的项目配置字符串。
     """
     if not projects:
         return ""
 
     lines = [
         "# ============================================",
-        "# MkDocs 批量构建配置",
+        "# 项目配置",
         "# ============================================",
         "",
     ]
@@ -57,6 +91,7 @@ def _generate_mkdocs_section(projects: list[dict]) -> str:
             f"project_dir = {_escape_toml_string(proj.get('project_dir', ''))}"
         )
 
+        # MkDocs 字段
         if proj.get("output_dir"):
             lines.append(f"output_dir = {_escape_toml_string(proj['output_dir'])}")
 
@@ -66,8 +101,62 @@ def _generate_mkdocs_section(projects: list[dict]) -> str:
         if proj.get("strict"):
             lines.append("strict = true")
 
+        # 域名字段（单个字符串）
+        if proj.get("domain"):
+            lines.append(f"domain = {_escape_toml_string(proj['domain'])}")
+
         lines.append("")
 
+    return "\n".join(lines)
+
+
+def _generate_letsencrypt_section(
+    provider: str = "manual",
+    output_dir: str = "",
+    staging: bool = True,
+    email: str = "",
+    provider_config: dict[str, str] | None = None,
+) -> str:
+    """生成 Let's Encrypt 全局配置部分。
+
+    Args:
+        provider: DNS 提供商名称 ("manual", "cloudflare", "aliyun")。
+        output_dir: 证书输出目录路径。
+        staging: 是否使用测试环境。
+        email: 联系邮箱。
+        provider_config: DNS 提供商配置字典。
+
+    Returns:
+        TOML 格式的 Let's Encrypt 配置字符串。
+    """
+    lines = [
+        "# ============================================",
+        "# Let's Encrypt 证书配置",
+        "# ============================================",
+        "",
+        "[letsencrypt]",
+    ]
+
+    lines.append(f"provider = {_escape_toml_string(provider)}")
+
+    if output_dir:
+        lines.append(f"output_dir = {_escape_toml_string(output_dir)}")
+    else:
+        lines.append(f"output_dir = {_escape_toml_string('out_le')}")
+
+    lines.append(f"staging = {str(staging).lower()}")
+
+    if email:
+        lines.append(f"email = {_escape_toml_string(email)}")
+
+    # provider_config 作为子表
+    if provider_config and isinstance(provider_config, dict):
+        lines.append("")
+        lines.append("[letsencrypt.provider_config]")
+        for key, value in provider_config.items():
+            lines.append(f"{key} = {_escape_toml_string(str(value))}")
+
+    lines.append("")
     return "\n".join(lines)
 
 
@@ -106,12 +195,20 @@ def _generate_git_section(users: list[dict]) -> str:
 def generate_config_content(
     mkdocs_projects: list[dict] | None = None,
     git_users: list[dict] | None = None,
+    letsencrypt_config: dict[str, Any] | None = None,
 ) -> str:
     """生成完整的 zxtool.toml 配置文件内容。
 
     Args:
-        mkdocs_projects: MkDocs 项目配置列表。
+        mkdocs_projects: 项目配置列表。每个项目可包含 project_dir、
+            output_dir、config_file、strict、domain 等字段。
         git_users: Git 用户配置列表。
+        letsencrypt_config: Let's Encrypt 全局配置字典，可包含：
+            - provider: DNS 提供商名称
+            - output_dir: 证书输出目录
+            - staging: 是否使用测试环境
+            - email: 联系邮箱
+            - provider_config: DNS 提供商配置
 
     Returns:
         完整的 TOML 配置文件内容。
@@ -125,12 +222,24 @@ def generate_config_content(
     parts.append("# 用法:")
     parts.append("#   zxtool mkdocs batch          # 批量构建 MkDocs 项目")
     parts.append("#   zxtool git config fill       # 填充 Git 仓库 user 配置")
+    parts.append("#   zxtool le batch               # 根据配置批量申请/续签证书")
     parts.append("")
 
-    # MkDocs 配置
-    mkdocs_section = _generate_mkdocs_section(mkdocs_projects or [])
-    if mkdocs_section:
-        parts.append(mkdocs_section)
+    # Let's Encrypt 配置
+    if letsencrypt_config:
+        le_section = _generate_letsencrypt_section(
+            provider=letsencrypt_config.get("provider", "manual"),
+            output_dir=letsencrypt_config.get("output_dir", "out_le"),
+            staging=letsencrypt_config.get("staging", True),
+            email=letsencrypt_config.get("email", ""),
+            provider_config=letsencrypt_config.get("provider_config"),
+        )
+        parts.append(le_section)
+
+    # 项目配置
+    projects_section = _generate_projects_section(mkdocs_projects or [])
+    if projects_section:
+        parts.append(projects_section)
 
     # Git 配置
     git_section = _generate_git_section(git_users or [])
@@ -138,7 +247,7 @@ def generate_config_content(
         parts.append(git_section)
 
     # 如果没有任何配置，添加注释说明
-    if not mkdocs_projects and not git_users:
+    if not mkdocs_projects and not git_users and not letsencrypt_config:
         parts.append("# 暂无配置项")
         parts.append("# 运行 'zxtool config init' 交互式生成配置")
         parts.append("")
@@ -150,14 +259,16 @@ def write_config(
     config_path: str | Path | None = None,
     mkdocs_projects: list[dict] | None = None,
     git_users: list[dict] | None = None,
+    letsencrypt_config: dict[str, Any] | None = None,
     force: bool = False,
 ) -> bool:
     """写入 zxtool.toml 配置文件。
 
     Args:
         config_path: 配置文件路径，默认为 ~/.config/zxtool.toml。
-        mkdocs_projects: MkDocs 项目配置列表。
+        mkdocs_projects: 项目配置列表。每个项目可包含 domain 字段。
         git_users: Git 用户配置列表。
+        letsencrypt_config: Let's Encrypt 全局配置字典。
         force: 是否覆盖已存在的文件。
 
     Returns:
@@ -181,12 +292,149 @@ def write_config(
     content = generate_config_content(
         mkdocs_projects=mkdocs_projects,
         git_users=git_users,
+        letsencrypt_config=letsencrypt_config,
     )
 
     # 写入文件
     config_path.write_text(content, encoding="utf-8")
     print(f"[OK] 配置文件已创建: {config_path}")
     return True
+
+
+def load_config(config_path: str | Path | None = None) -> dict[str, Any]:
+    """加载 zxtool.toml 配置文件。
+
+    Args:
+        config_path: 配置文件路径，默认为 ~/.config/zxtool.toml。
+
+    Returns:
+        解析后的配置字典，结构如下::
+
+            {
+                "letsencrypt": {
+                    "provider": "cloudflare",
+                    "output_dir": "out_le",
+                    "staging": True,
+                    "email": "admin@example.com",
+                    "provider_config": {"api_token": "xxx", "zone_id": "yyy"},
+                },
+                "projects": [
+                    {"project_dir": "...", "domain": "example.com", ...},
+                    ...
+                ],
+                "git": {
+                    "user": [{"name": "...", "email": "..."}, ...]
+                },
+            }
+
+    Raises:
+        FileNotFoundError: 配置文件不存在时。
+        ValueError: 配置文件格式错误时。
+    """
+    if config_path is None:
+        config_path = DEFAULT_CONFIG_PATH
+    else:
+        config_path = Path(config_path).resolve()
+
+    if not config_path.exists():
+        raise FileNotFoundError(f"配置文件不存在: {config_path}")
+
+    with open(config_path, "rb") as f:
+        data = tomllib.load(f)
+
+    return data
+
+
+def load_le_config(config_path: str | Path | None = None) -> dict[str, Any]:
+    """加载 Let's Encrypt 全局配置。
+
+    从 zxtool.toml 的 [letsencrypt] 节点读取配置。
+
+    Args:
+        config_path: 配置文件路径，默认为 ~/.config/zxtool.toml。
+
+    Returns:
+        Let's Encrypt 配置字典，包含:
+            - provider: DNS 提供商名称 (默认 "manual")
+            - output_dir: 证书输出目录 (默认 "out_le")
+            - staging: 是否使用测试环境 (默认 True)
+            - email: 联系邮箱 (默认 "")
+            - provider_config: DNS 提供商配置字典 (默认 {})
+
+    Raises:
+        FileNotFoundError: 配置文件不存在时。
+    """
+    data = load_config(config_path)
+    le = data.get("letsencrypt", {})
+    return {
+        "provider": le.get("provider", "manual"),
+        "output_dir": le.get("output_dir", "out_le"),
+        "staging": le.get("staging", True),
+        "email": le.get("email", ""),
+        "provider_config": le.get("provider_config", {}),
+    }
+
+
+def load_projects_with_domain(
+    config_path: str | Path | None = None,
+) -> list[dict[str, Any]]:
+    """加载包含域名配置的项目列表。
+
+    从 zxtool.toml 的 [[projects]] 节点中筛选出配置了 domain 字段的项目。
+
+    Args:
+        config_path: 配置文件路径，默认为 ~/.config/zxtool.toml。
+
+    Returns:
+        包含 domain 字段的项目列表，每个元素额外附带 Let's Encrypt 全局配置::
+
+            [
+                {
+                    "project_dir": "/path/to/project",
+                    "domain": "example.com",
+                    "_le": {
+                        "provider": "cloudflare",
+                        "output_dir": "out_le",
+                        "staging": True,
+                        "email": "admin@example.com",
+                        "provider_config": {...},
+                    },
+                },
+                ...
+            ]
+
+    Raises:
+        FileNotFoundError: 配置文件不存在时。
+    """
+    data = load_config(config_path)
+    projects = data.get("projects", [])
+
+    le_config = {
+        "provider": "manual",
+        "output_dir": "out_le",
+        "staging": True,
+        "email": "",
+        "provider_config": {},
+    }
+    if "letsencrypt" in data:
+        le_sec = data["letsencrypt"]
+        le_config = {
+            "provider": le_sec.get("provider", "manual"),
+            "output_dir": le_sec.get("output_dir", "out_le"),
+            "staging": le_sec.get("staging", True),
+            "email": le_sec.get("email", ""),
+            "provider_config": le_sec.get("provider_config", {}),
+        }
+
+    result = []
+    for proj in projects:
+        if proj.get("domain"):
+            # 合并项目配置和全局 LE 配置
+            entry = dict(proj)
+            entry["_le"] = dict(le_config)
+            result.append(entry)
+
+    return result
 
 
 def interactive_init(
@@ -226,10 +474,56 @@ def interactive_init(
 
     mkdocs_projects = []
     git_users = []
+    letsencrypt_config = None
 
-    # --- MkDocs 配置 ---
-    print("\n--- MkDocs 批量构建配置 ---")
-    print("添加需要批量构建的 MkDocs 项目（留空跳过）")
+    # --- Let's Encrypt 配置 ---
+    print("\n--- Let's Encrypt 证书配置 ---")
+    try:
+        setup_le = input("配置 Let's Encrypt? (y/N): ").strip().lower()
+    except (EOFError, KeyboardInterrupt):
+        print("\n")
+        setup_le = "n"
+
+    if setup_le in ("y", "yes"):
+        letsencrypt_config = {}
+        try:
+            provider = input("  DNS 提供商 [manual/cloudflare/aliyun, 默认 manual]: ").strip().lower()
+            letsencrypt_config["provider"] = provider if provider else "manual"
+
+            output_dir = input("  证书输出目录 [默认 out_le]: ").strip()
+            letsencrypt_config["output_dir"] = output_dir if output_dir else "out_le"
+
+            email = input("  联系邮箱: ").strip()
+            letsencrypt_config["email"] = email
+
+            staging = input("  使用测试环境? [Y/n]: ").strip().lower()
+            letsencrypt_config["staging"] = staging not in ("n", "no")
+
+            # DNS 提供商配置
+            provider_name = letsencrypt_config["provider"]
+            provider_config = {}
+            if provider_name == "cloudflare":
+                api_token = input("  Cloudflare API Token: ").strip()
+                zone_id = input("  Cloudflare Zone ID: ").strip()
+                provider_config["api_token"] = api_token
+                provider_config["zone_id"] = zone_id
+            elif provider_name == "aliyun":
+                access_key_id = input("  阿里云 AccessKey ID: ").strip()
+                access_key_secret = input("  阿里云 AccessKey Secret: ").strip()
+                provider_config["access_key_id"] = access_key_id
+                provider_config["access_key_secret"] = access_key_secret
+
+            if provider_config:
+                letsencrypt_config["provider_config"] = provider_config
+
+            print("  [OK] Let's Encrypt 配置已添加")
+        except (EOFError, KeyboardInterrupt):
+            print("\n")
+            letsencrypt_config = None
+
+    # --- MkDocs / 项目配置 ---
+    print("\n--- 项目配置 ---")
+    print("添加项目（可配置 MkDocs 构建和域名，留空跳过）")
 
     while True:
         try:
@@ -241,9 +535,9 @@ def interactive_init(
         if not project_dir:
             break
 
-        project = {"project_dir": project_dir}
+        project: dict[str, Any] = {"project_dir": project_dir}
 
-        output_dir = input("  输出目录 [默认 site]: ").strip()
+        output_dir = input("  MkDocs 输出目录 [默认 site]: ").strip()
         if output_dir:
             project["output_dir"] = output_dir
 
@@ -255,8 +549,15 @@ def interactive_init(
         if strict in ("y", "yes"):
             project["strict"] = True
 
+        domain = input("  项目域名（用于 Let's Encrypt 证书，如 example.com）: ").strip()
+        if domain:
+            project["domain"] = domain
+
         mkdocs_projects.append(project)
-        print(f"  [OK] 已添加项目: {project_dir}")
+        summary = f"{project_dir}"
+        if domain:
+            summary += f" (域名: {domain})"
+        print(f"  [OK] 已添加项目: {summary}")
 
     # --- Git 配置 ---
     print("\n--- Git 仓库用户配置 ---")
@@ -290,14 +591,25 @@ def interactive_init(
     print("  配置摘要")
     print("=" * 50)
 
-    if mkdocs_projects:
-        print(f"\nMkDocs 项目: {len(mkdocs_projects)} 个")
-        for proj in mkdocs_projects:
-            print(f"  - {proj['project_dir']}")
-            if proj.get("output_dir"):
-                print(f"    输出: {proj['output_dir']}")
+    if letsencrypt_config:
+        print(f"\nLet's Encrypt:")
+        print(f"  DNS 提供商: {letsencrypt_config.get('provider', 'manual')}")
+        print(f"  输出目录:   {letsencrypt_config.get('output_dir', 'out_le')}")
+        print(f"  环境:       {'测试' if letsencrypt_config.get('staging', True) else '生产'}")
+        if letsencrypt_config.get("email"):
+            print(f"  联系邮箱:   {letsencrypt_config['email']}")
     else:
-        print("\nMkDocs 项目: 无")
+        print("\nLet's Encrypt: 未配置")
+
+    if mkdocs_projects:
+        print(f"\n项目: {len(mkdocs_projects)} 个")
+        for proj in mkdocs_projects:
+            detail = f"  - {proj['project_dir']}"
+            if proj.get("domain"):
+                detail += f" (域名: {proj['domain']})"
+            print(detail)
+    else:
+        print("\n项目: 无")
 
     if git_users:
         print(f"\nGit 用户: {len(git_users)} 个")
@@ -322,6 +634,7 @@ def interactive_init(
         config_path=config_path,
         mkdocs_projects=mkdocs_projects if mkdocs_projects else None,
         git_users=git_users if git_users else None,
+        letsencrypt_config=letsencrypt_config,
         force=True,
     )
 
@@ -331,6 +644,7 @@ def interactive_init(
         print(f"\n使用方式:")
         print(f"  zxtool mkdocs batch              # 批量构建 MkDocs")
         print(f"  zxtool git config fill           # 填充 Git user 配置")
+        print(f"  zxtool le batch                   # 根据配置批量申请/续签证书")
 
     return success
 

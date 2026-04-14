@@ -2,6 +2,7 @@
 
 import configparser
 import os
+import subprocess
 import tempfile
 from pathlib import Path
 from unittest.mock import patch, MagicMock
@@ -17,6 +18,7 @@ from zxtoolbox.git_config import (
     load_zxtool_config,
     check_git_config,
     fill_git_config,
+    git_pull,
 )
 
 
@@ -262,3 +264,108 @@ class TestFillGitConfig:
         config.read(str(config_file))
         assert config.get("user", "name") == "ConfigUser"
         assert config.get("user", "email") == "config@test.com"
+
+
+class TestGitPull:
+    """Test git pull functionality."""
+
+    @patch("zxtoolbox.git_config.subprocess.run")
+    @patch("zxtoolbox.git_config.find_git_dir")
+    def test_git_pull_success(self, mock_find_git_dir, mock_run, capsys):
+        """Test successful git pull."""
+        mock_find_git_dir.return_value = Path("/fake/project/.git")
+        mock_run.return_value = MagicMock(
+            returncode=0, stdout="Already up to date.\n", stderr=""
+        )
+        result = git_pull(project_dir="/fake/project")
+        assert result is True
+        captured = capsys.readouterr()
+        assert "Already up to date" in captured.out
+
+    @patch("zxtoolbox.git_config.subprocess.run")
+    @patch("zxtoolbox.git_config.find_git_dir")
+    def test_git_pull_success_with_output(self, mock_find_git_dir, mock_run, capsys):
+        """Test git pull with fetch and merge output."""
+        mock_find_git_dir.return_value = Path("/fake/project/.git")
+        mock_run.return_value = MagicMock(
+            returncode=0,
+            stdout="Updating abc1234..def5678\nFast-forward\n",
+            stderr="",
+        )
+        result = git_pull(project_dir="/fake/project")
+        assert result is True
+        captured = capsys.readouterr()
+        assert "Fast-forward" in captured.out
+
+    @patch("zxtoolbox.git_config.subprocess.run")
+    @patch("zxtoolbox.git_config.find_git_dir")
+    def test_git_pull_failure(self, mock_find_git_dir, mock_run, capsys):
+        """Test git pull with non-zero exit code."""
+        mock_find_git_dir.return_value = Path("/fake/project/.git")
+        mock_run.return_value = MagicMock(
+            returncode=1, stdout="", stderr="error: failed to pull\n"
+        )
+        result = git_pull(project_dir="/fake/project")
+        assert result is False
+        captured = capsys.readouterr()
+        assert "失败" in captured.out
+
+    @patch("zxtoolbox.git_config.subprocess.run")
+    @patch("zxtoolbox.git_config.find_git_dir")
+    def test_git_pull_with_remote(self, mock_find_git_dir, mock_run, capsys):
+        """Test git pull with specified remote."""
+        mock_find_git_dir.return_value = Path("/fake/project/.git")
+        mock_run.return_value = MagicMock(returncode=0, stdout="Already up to date.\n", stderr="")
+        result = git_pull(project_dir="/fake/project", remote="origin")
+        assert result is True
+        call_args = mock_run.call_args
+        assert call_args[0][0] == ["git", "pull", "origin"]
+
+    @patch("zxtoolbox.git_config.subprocess.run")
+    @patch("zxtoolbox.git_config.find_git_dir")
+    def test_git_pull_with_remote_and_branch(self, mock_find_git_dir, mock_run, capsys):
+        """Test git pull with remote and branch."""
+        mock_find_git_dir.return_value = Path("/fake/project/.git")
+        mock_run.return_value = MagicMock(returncode=0, stdout="Already up to date.\n", stderr="")
+        result = git_pull(project_dir="/fake/project", remote="origin", branch="main")
+        assert result is True
+        call_args = mock_run.call_args
+        assert call_args[0][0] == ["git", "pull", "origin", "main"]
+
+    @patch("zxtoolbox.git_config.subprocess.run")
+    @patch("zxtoolbox.git_config.find_git_dir")
+    def test_git_pull_timeout(self, mock_find_git_dir, mock_run, capsys):
+        """Test git pull timeout."""
+        mock_find_git_dir.return_value = Path("/fake/project/.git")
+        mock_run.side_effect = subprocess.TimeoutExpired(cmd="git pull", timeout=120)
+        result = git_pull(project_dir="/fake/project")
+        assert result is False
+        captured = capsys.readouterr()
+        assert "超时" in captured.out
+
+    @patch("zxtoolbox.git_config.subprocess.run")
+    @patch("zxtoolbox.git_config.find_git_dir")
+    def test_git_pull_git_not_found(self, mock_find_git_dir, mock_run, capsys):
+        """Test git pull when git is not installed."""
+        mock_find_git_dir.return_value = Path("/fake/project/.git")
+        mock_run.side_effect = FileNotFoundError()
+        result = git_pull(project_dir="/fake/project")
+        assert result is False
+        captured = capsys.readouterr()
+        assert "未找到 git 命令" in captured.out
+
+    def test_git_pull_no_git_repo(self, tmp_path, capsys):
+        """Test git pull in a non-git directory."""
+        result = git_pull(project_dir=str(tmp_path))
+        assert result is False
+        captured = capsys.readouterr()
+        assert "未找到 Git 仓库" in captured.out
+
+    @patch("zxtoolbox.git_config.subprocess.run")
+    def test_git_pull_default_cwd(self, mock_run, capsys):
+        """Test git pull with default project_dir uses cwd."""
+        mock_run.return_value = MagicMock(returncode=0, stdout="Already up to date.\n", stderr="")
+        with patch("os.getcwd", return_value="/fake/project"):
+            with patch("zxtoolbox.git_config.find_git_dir", return_value=Path("/fake/project/.git")):
+                result = git_pull()
+                assert result is True

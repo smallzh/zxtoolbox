@@ -1158,6 +1158,235 @@ def _update_renew_state(
 
 
 # ============================================================
+# 配置驱动的批量操作
+# ============================================================
+
+
+def batch_obtain_certs(
+    config_path: str | Path | None = None,
+    dry_run: bool = False,
+) -> dict[str, bool]:
+    """根据配置文件批量签发证书。
+
+    读取 zxtool.toml 中 [[projects]] 的 domain 字段和 [letsencrypt] 全局配置，
+    为每个配置了 domain 的项目自动签发 Let's Encrypt 证书。
+
+    对于泛域名（如 *.example.com），会自动将基础域名一同包含在证书中。
+    例如 domain = "*.example.com" 会签发包含 ["*.example.com", "example.com"] 的证书。
+
+    Args:
+        config_path: 配置文件路径，默认为 ~/.config/zxtool.toml。
+        dry_run: 仅打印计划，不实际执行。
+
+    Returns:
+        每个域名的签发结果 {domain: success}
+    """
+    from zxtoolbox.config_manager import load_projects_with_domain
+
+    projects = load_projects_with_domain(config_path)
+
+    if not projects:
+        print("[INFO] 配置文件中没有配置 domain 的项目。")
+        print("提示: 在 [[projects]] 中添加 domain 字段，例如:")
+        print('  domain = "example.com"')
+        print('  domain = "*.example.com"')
+        return {}
+
+    print()
+    print("=" * 60)
+    print("  Let's Encrypt 批量证书签发")
+    print(f"  共 {len(projects)} 个项目需要签发证书")
+    print("=" * 60)
+    print()
+
+    results: dict[str, bool] = {}
+
+    for i, proj in enumerate(projects, 1):
+        domain = proj["domain"]
+        le_config = proj["_le"]
+
+        # 对于泛域名，自动添加基础域名
+        if domain.startswith("*."):
+            domain_list = [domain, domain[2:]]  # *.example.com -> [*.example.com, example.com]
+        else:
+            domain_list = [domain]
+
+        provider = le_config["provider"]
+        provider_config = le_config.get("provider_config", {})
+        out_dir = Path(le_config["output_dir"]).resolve()
+        staging = le_config.get("staging", True)
+        email = le_config.get("email", "")
+
+        print(f"--- [{i}/{len(projects)}] {domain} ---")
+        print(f"  域名列表: {domain_list}")
+        print(f"  DNS 提供商: {provider}")
+        print(f"  输出目录: {out_dir}")
+        print(f"  环境: {'测试' if staging else '生产'}")
+        if email:
+            print(f"  邮箱: {email}")
+
+        if dry_run:
+            print(f"  [DRY-RUN] 跳过证书签发")
+            results[domain] = True
+            print()
+            continue
+
+        try:
+            obtain_cert(
+                out_dir=out_dir,
+                domains=domain_list,
+                provider=provider,
+                provider_config=provider_config if provider_config else None,
+                staging=staging,
+                email=email,
+            )
+            results[domain] = True
+        except Exception as e:
+            logger.error("证书签发失败 [%s]: %s", domain, e)
+            print(f"  [ERROR] 证书签发失败: {e}")
+            results[domain] = False
+
+        print()
+
+    # 汇总
+    success_count = sum(1 for v in results.values() if v)
+    print("=" * 60)
+    print(f"  批量签发完成: {success_count}/{len(projects)} 成功")
+    print("=" * 60)
+
+    for domain_result, success in results.items():
+        status = "[OK]" if success else "[FAIL]"
+        print(f"  {status} {domain_result}")
+    print()
+
+    return results
+
+
+def batch_renew_certs(
+    config_path: str | Path | None = None,
+    dry_run: bool = False,
+) -> dict[str, bool]:
+    """根据配置文件批量续签即将到期的证书。
+
+    读取 zxtool.toml 中 [letsencrypt] 和 [[projects]] 的 domain 配置，
+    对每个配置了 domain 的项目检查证书到期时间并自动续签。
+
+    续签逻辑：
+    1. 读取全局 [letsencrypt] 配置获取 output_dir 和 DNS 提供商信息
+    2. 对每个有 domain 的项目，检查 renew_state.json 中的证书状态
+    3. 如果证书即将到期（默认 30 天内）或不存在，则执行续签
+
+    Args:
+        config_path: 配置文件路径，默认为 ~/.config/zxtool.toml。
+        dry_run: 仅检查，不执行续签。
+
+    Returns:
+        每个域名的续签结果 {domain: success}
+    """
+    from zxtoolbox.config_manager import load_projects_with_domain, load_le_config
+
+    le_config = load_le_config(config_path)
+    out_dir = Path(le_config["output_dir"]).resolve()
+    provider = le_config["provider"]
+    provider_config = le_config.get("provider_config", {})
+    staging = le_config.get("staging", True)
+    email = le_config.get("email", "")
+
+    projects = load_projects_with_domain(config_path)
+
+    if not projects:
+        # 即使没有项目配置了 domain，也检查已有证书的续签
+        print("[INFO] 配置文件中没有配置 domain 的项目。")
+        print("尝试从已有 renew_state.json 检查续签...")
+        renew_certs(
+            out_dir=out_dir,
+            provider_config=provider_config if provider_config else None,
+            dry_run=dry_run,
+        )
+        return {}
+
+    print()
+    print("=" * 60)
+    print("  Let's Encrypt 批量证书续签")
+    print("=" * 60)
+    print()
+
+    results: dict[str, bool] = {}
+
+    for i, proj in enumerate(projects, 1):
+        domain = proj["domain"]
+
+        # 对于泛域名，自动添加基础域名
+        if domain.startswith("*."):
+            domain_list = [domain, domain[2:]]
+        else:
+            domain_list = [domain]
+
+        # 检查续签状态
+        state_path = out_dir / "renew_state.json"
+        needs_renew = True  # 默认需要签发（可能首次）
+
+        if state_path.exists():
+            state = json.loads(state_path.read_text())
+            certs = state.get("certificates", {})
+            cert_info = certs.get(domain)
+
+            if cert_info:
+                expires_str = cert_info.get("expires_at", "")
+                if expires_str:
+                    try:
+                        expires_at = datetime.fromisoformat(expires_str)
+                        days_left = (expires_at - datetime.now(timezone.utc)).days
+                        print(f"  [{i}/{len(projects)}] {domain}: 剩余 {days_left} 天")
+
+                        if days_left > RENEW_DAYS_BEFORE:
+                            print(f"    → 证书有效，无需续签")
+                            needs_renew = False
+                            results[domain] = True
+                            continue
+                        else:
+                            print(f"    → 证书即将过期，需要续签")
+                    except ValueError:
+                        print(f"  [{i}/{len(projects)}] {domain}: 无法解析过期时间，将重新签发")
+
+        if not needs_renew:
+            continue
+
+        if dry_run:
+            print(f"  [{i}/{len(projects)}] {domain}: 需要签发/续签 (dry-run，跳过)")
+            results[domain] = True
+            continue
+
+        try:
+            obtain_cert(
+                out_dir=out_dir,
+                domains=domain_list,
+                provider=provider,
+                provider_config=provider_config if provider_config else None,
+                staging=staging,
+                email=email,
+            )
+            results[domain] = True
+        except Exception as e:
+            logger.error("证书续签失败 [%s]: %s", domain, e)
+            print(f"  [ERROR] 证书续签失败 [{i}/{len(projects)}] {domain}: {e}")
+            results[domain] = False
+
+    # 汇总
+    print()
+    if results:
+        success_count = sum(1 for v in results.values() if v)
+        print(f"续签完成: {success_count}/{len(results)} 成功")
+
+        for domain_result, success in results.items():
+            status = "[OK]" if success else "[FAIL]"
+            print(f"  {status} {domain_result}")
+    print()
+
+    return results
+
+
+# ============================================================
 # CLI 入口
 # ============================================================
 

@@ -2,13 +2,13 @@
 
 基于 MkDocs 的项目管理工具，支持创建、构建和批量发布文档站点。
 
-## 功能特性
+## 0x01. 功能特性
 
 - **创建项目**: 快速初始化新的 MkDocs 文档项目
 - **构建项目**: 将 MkDocs 项目构建为静态 HTML，输出到指定目录
 - **批量构建**: 通过 TOML 配置文件，一次性构建并发布多个 MkDocs 项目
 
-## 快速开始
+## 0x02. 快速开始
 
 ### 1. 创建新的 MkDocs 项目
 
@@ -136,7 +136,7 @@ zxtool mkdocs batch ./batch-config.toml
   [OK] /path/to/project3
 ```
 
-## 注意事项
+## 0x03. 注意事项
 
 - MkDocs 为可选依赖，使用前需安装：`uv sync --extra docs`
 - 输出目录不存在时会自动创建

@@ -385,14 +385,14 @@ wheels = [
 
 [[package]]
 name = "mkdocs-smzhbook-theme"
-version = "1.1"
+version = "1.3"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "mkdocs" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/e7/84/db44313ba056d1c528aa60037a7ac007fe810f42a6d82dc22867904d3d1e/mkdocs_smzhbook_theme-1.1.tar.gz", hash = "sha256:2b6adcd8a0e5ac19c4fecd253eb0211505e2883951473dc18f6ff0066a397da7", size = 1003384, upload-time = "2026-04-01T03:15:35.542Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/51/35/2a53d617203e23812e6fc1240c234c8d9d46d0e3025c2c3fffd25d159d96/mkdocs_smzhbook_theme-1.3.tar.gz", hash = "sha256:e1aaefe7c1343e0f9c95ecc02efa69357796ad2e150294e2daf855c591783056", size = 1036896, upload-time = "2026-04-13T06:49:31.037Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/f1/50/6da2ffb1be10b1fcddb976e7216a419dd3acd0c955545233263ed1feb19a/mkdocs_smzhbook_theme-1.1-py2.py3-none-any.whl", hash = "sha256:84f19993204276399da8a822791b770d23fc265c0a46bbf42b2d65fe8030f41d", size = 1010378, upload-time = "2026-04-01T03:15:33.519Z" },
+    { url = "https://files.pythonhosted.org/packages/f5/7f/b33cac933165bbf87c90ab13dd3aabcfab7a05d88a29170b34acdcd8ff97/mkdocs_smzhbook_theme-1.3-py2.py3-none-any.whl", hash = "sha256:579f8d0d0bd46ad015420422c201d2c5ffc09ab7b3d66c5b9927b29d041ed302", size = 1043647, upload-time = "2026-04-13T06:49:23.847Z" },
 ]
 
 [[package]]
@@ -753,7 +753,7 @@ requires-dist = [
     { name = "acme", specifier = ">=3.0.0" },
     { name = "cryptography", specifier = ">=42.0.0" },
     { name = "mkdocs", marker = "extra == 'docs'", specifier = ">=1.6.0" },
-    { name = "mkdocs-smzhbook-theme", marker = "extra == 'docs'", specifier = ">=1.1" },
+    { name = "mkdocs-smzhbook-theme", marker = "extra == 'docs'", specifier = ">=1.3" },
     { name = "paramiko", specifier = ">=3.5.1" },
     { name = "prettytable", specifier = ">=3.16.0" },
     { name = "psutil", specifier = ">=7.0.0" },

@@ -21,9 +21,11 @@ nav:
       - 自签SSL证书: ssl_cert.md
       - Let's Encrypt证书: letsencrypt.md
       - 视频下载: video_download.md
+      - TOTP解析: totp.md
 
 # Plugins
-plugins: []
+plugins:
+  - search
 
 # Markdown extensions
 markdown_extensions:
@@ -38,4 +40,4 @@ markdown_extensions:
 extra:
   social:
     - icon: fontawesome/brands/github
-      link: https://gitee.com/smallZh/toolbox
+      link: https://github.com/smallzh/zxtoolbox

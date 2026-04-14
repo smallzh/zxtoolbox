@@ -2,10 +2,12 @@
 
 检查和填充 Git 仓库的 .git/config 中的 user.name 和 user.email。
 支持从 ~/.config/zxtool.toml 的 [[git.user]] 节点读取默认配置。
+支持从远程仓库拉取更新（git pull）。
 """
 
 import configparser
 import os
+import subprocess
 import sys
 from pathlib import Path
 
@@ -47,7 +49,7 @@ def read_git_config(git_dir: Path) -> configparser.ConfigParser | None:
     if not config_file.exists():
         return None
 
-    config = configparser.ConfigParser()
+    config = configparser.ConfigParser(strict=False)
     config.read(str(config_file))
     return config
 
@@ -243,6 +245,57 @@ def fill_git_config(
     print(f"  email: {final_email}")
     print(f"  仓库:  {git_dir.parent}")
     return True
+
+
+def git_pull(project_dir: str | None = None, remote: str | None = None, branch: str | None = None) -> bool:
+    """从远程仓库拉取更新（git pull）。
+
+    Args:
+        project_dir: 项目目录路径，默认为当前工作目录。
+        remote: 远程仓库名称（默认使用仓库配置的 upstream）。
+        branch: 分支名称（默认使用当前分支）。
+
+    Returns:
+        是否成功拉取更新。
+    """
+    if project_dir is None:
+        project_dir = os.getcwd()
+
+    project_path = Path(project_dir).resolve()
+    git_dir = find_git_dir(str(project_path))
+    if git_dir is None:
+        print(f"错误: 未找到 Git 仓库 ({project_path})")
+        return False
+
+    # 构建 git pull 命令
+    cmd = ["git", "pull"]
+    if remote:
+        cmd.append(remote)
+        if branch:
+            cmd.append(branch)
+
+    try:
+        result = subprocess.run(
+            cmd,
+            cwd=str(git_dir.parent),
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+        if result.stdout:
+            print(result.stdout, end="")
+        if result.stderr:
+            print(result.stderr, end="")
+        if result.returncode != 0:
+            print(f"错误: git pull 失败 (退出码 {result.returncode})")
+            return False
+        return True
+    except subprocess.TimeoutExpired:
+        print("错误: git pull 超时（120 秒）")
+        return False
+    except FileNotFoundError:
+        print("错误: 未找到 git 命令，请确认 git 已安装并在 PATH 中")
+        return False
 
 
 def main() -> None:

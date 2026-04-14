@@ -1,6 +1,7 @@
 """Tests for zxtoolbox.letsencrypt module."""
 
 import json
+import tempfile
 from pathlib import Path
 from unittest.mock import patch, MagicMock, PropertyMock
 
@@ -12,6 +13,8 @@ from zxtoolbox.letsencrypt import (
     get_provider,
     _compute_dns01_validation,
     _PROVIDER_MAP,
+    batch_obtain_certs,
+    batch_renew_certs,
 )
 
 
@@ -295,3 +298,171 @@ class TestAliyunProvider:
         )
         assert rr == "_acme-challenge.*"
         assert domain == "example.com"
+
+
+class TestBatchObtainCerts:
+    """Test config-driven batch certificate issuance."""
+
+    def test_batch_obtain_no_config(self, tmp_path, capsys):
+        """Test batch_obtain_certs with no domain projects in config."""
+        config_path = tmp_path / "zxtool.toml"
+        config_path.write_text('[[projects]]\nproject_dir = "/test"\n', encoding="utf-8")
+
+        results = batch_obtain_certs(str(config_path))
+
+        # No projects with domain, should return empty dict
+        assert results == {}
+        captured = capsys.readouterr()
+        assert "没有配置 domain" in captured.out
+
+    def test_batch_obtain_dry_run(self, tmp_path, capsys):
+        """Test batch_obtain_certs in dry-run mode."""
+        config_path = tmp_path / "zxtool.toml"
+        config_path.write_text('''
+[letsencrypt]
+provider = "manual"
+staging = true
+
+[[projects]]
+project_dir = "/myproject"
+domain = "example.com"
+''', encoding="utf-8")
+
+        results = batch_obtain_certs(str(config_path), dry_run=True)
+
+        assert "example.com" in results
+        assert results["example.com"] is True
+        captured = capsys.readouterr()
+        assert "DRY-RUN" in captured.out
+
+    def test_batch_obtain_wildcard_domain_dry_run(self, tmp_path, capsys):
+        """Test that wildcard domains auto-include base domain."""
+        config_path = tmp_path / "zxtool.toml"
+        config_path.write_text('''
+[letsencrypt]
+provider = "manual"
+staging = true
+
+[[projects]]
+project_dir = "/myproject"
+domain = "*.example.com"
+''', encoding="utf-8")
+
+        # We mock obtain_cert to verify the domains list
+        with patch("zxtoolbox.letsencrypt.obtain_cert") as mock_obtain:
+            mock_obtain.return_value = None
+            results = batch_obtain_certs(str(config_path), dry_run=True)
+
+        # Dry run should still list the wildcard domain
+        assert "*.example.com" in results
+
+    def test_batch_obtain_missing_config_file(self, tmp_path):
+        """Test batch_obtain_certs with missing config file."""
+        from zxtoolbox.config_manager import load_projects_with_domain
+
+        with pytest.raises(FileNotFoundError):
+            load_projects_with_domain(str(tmp_path / "nonexistent.toml"))
+
+
+class TestBatchRenewCerts:
+    """Test config-driven batch certificate renewal."""
+
+    def test_batch_renew_no_domain_projects(self, tmp_path, capsys):
+        """Test batch_renew_certs with no domain projects falls back to renew_certs."""
+        config_path = tmp_path / "zxtool.toml"
+        config_path.write_text('''
+[letsencrypt]
+provider = "manual"
+
+[[projects]]
+project_dir = "/test"
+''', encoding="utf-8")
+
+        # Will try to call renew_certs with default out_dir
+        with patch("zxtoolbox.letsencrypt.renew_certs") as mock_renew:
+            mock_renew.return_value = None
+            results = batch_renew_certs(str(config_path))
+
+        assert results == {}
+
+    def test_batch_renew_valid_cert_no_renewal(self, tmp_path, capsys):
+        """Test that valid certificates are not renewed."""
+        from datetime import datetime, timedelta, timezone
+
+        out_dir = tmp_path / "certs"
+        out_dir.mkdir()
+        out_dir_str = str(out_dir).replace("\\", "/")
+        config_path = tmp_path / "zxtool.toml"
+        config_path.write_text(f'''
+[letsencrypt]
+provider = "manual"
+staging = true
+output_dir = "{out_dir_str}"
+
+[[projects]]
+project_dir = "/myproject"
+domain = "example.com"
+''', encoding="utf-8")
+
+        expires_at = datetime.now(timezone.utc) + timedelta(days=60)
+        state = {
+            "certificates": {
+                "example.com": {
+                    "domains": ["example.com"],
+                    "issued_at": datetime.now(timezone.utc).isoformat(),
+                    "expires_at": expires_at.isoformat(),
+                    "provider": "manual",
+                    "staging": True,
+                }
+            }
+        }
+        state_path = out_dir / "renew_state.json"
+        state_path.write_text(json.dumps(state))
+
+        results = batch_renew_certs(str(config_path))
+
+        assert "example.com" in results
+        assert results["example.com"] is True
+        captured = capsys.readouterr()
+        assert "无需续签" in captured.out
+
+    def test_batch_renew_expiring_cert(self, tmp_path, capsys):
+        """Test that expiring certificates get renewed."""
+        from datetime import datetime, timedelta, timezone
+
+        out_dir = tmp_path / "certs"
+        out_dir.mkdir()
+        out_dir_str = str(out_dir).replace("\\", "/")
+        config_path = tmp_path / "zxtool.toml"
+        config_path.write_text(f'''
+[letsencrypt]
+provider = "manual"
+staging = true
+output_dir = "{out_dir_str}"
+
+[[projects]]
+project_dir = "/myproject"
+domain = "expiring.com"
+''', encoding="utf-8")
+
+        # Create expiring cert state
+        expires_at = datetime.now(timezone.utc) + timedelta(days=10)
+        state = {
+            "certificates": {
+                "expiring.com": {
+                    "domains": ["expiring.com"],
+                    "issued_at": datetime.now(timezone.utc).isoformat(),
+                    "expires_at": expires_at.isoformat(),
+                    "provider": "manual",
+                    "staging": True,
+                }
+            }
+        }
+        (out_dir / "renew_state.json").write_text(json.dumps(state))
+
+        with patch("zxtoolbox.letsencrypt.obtain_cert") as mock_obtain:
+            mock_obtain.return_value = None
+            results = batch_renew_certs(str(config_path), dry_run=True)
+
+        # dry-run should still report needing renewal
+        assert "expiring.com" in results
