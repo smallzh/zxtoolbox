@@ -59,7 +59,7 @@ def get_cpu_summary():
 
 def get_gpu_summary():
     """获取GPU摘要信息"""
-    # 优先使用 pynvml（项目已声明依赖）
+    # 优先使用 nvidia-ml-py（兼容 pynvml 接口）
     try:
         import pynvml
         pynvml.nvmlInit()
@@ -154,7 +154,7 @@ def gpu_info():
     gpu_table = PrettyTable()
     init_table(gpu_table)
     
-    # 优先使用 pynvml（项目已声明依赖）
+    # 优先使用 nvidia-ml-py（兼容 pynvml 接口）
     try:
         import pynvml
         pynvml.nvmlInit()

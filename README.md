@@ -54,7 +54,7 @@ toolbox/
 | prettytable | Table formatting | [github.com](https://github.com/jazzband/prettytable) |
 | psutil | System information | [psutil.readthedocs.io](https://psutil.readthedocs.io/) |
 | py-cpuinfo | CPU information | [github.com](https://github.com/workhorsy/py-cpuinfo) |
-| pynvml | NVIDIA GPU information | [github.com](https://github.com/gpuopenanalytics/pynvml) |
+| nvidia-ml-py | NVIDIA GPU information | [github.com](https://github.com/NVIDIA/nvidia-ml-py) |
 | pyotp | 2FA one-time passwords | [github.com](https://github.com/pyauth/pyotp) |
 | yt-dlp | Video downloading | [github.com](https://github.com/yt-dlp/yt-dlp) |
 | pyyaml | YAML parsing | [pyyaml.org](https://pyyaml.org/) |

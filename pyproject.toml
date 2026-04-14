@@ -1,6 +1,6 @@
 [project]
 name = "zxtoolbox"
-version = "1.1.1"
+version = "1.1.2"
 description = "some used tool collections"
 readme = "README.md"
 requires-python = ">=3.13"
@@ -9,7 +9,7 @@ dependencies = [
     "prettytable>=3.16.0",
     "psutil>=7.0.0",
     "py-cpuinfo>=9.0.0",
-    "pynvml>=12.0.0",
+    "nvidia-ml-py>=12.0.0",
     "pyotp>=2.9.0",
     "yt-dlp>=2025.1.0",
     "pyyaml>=6.0.0",

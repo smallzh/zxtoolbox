@@ -530,18 +530,6 @@ wheels = [
 ]
 
 [[package]]
-name = "pynvml"
-version = "12.0.0"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "nvidia-ml-py" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/26/6f/6b5880ed0239e85b9a39aed103b65b2ef81425beef9f45e5c035bf008330/pynvml-12.0.0.tar.gz", hash = "sha256:299ce2451a6a17e6822d6faee750103e25b415f06f59abb8db65d30f794166f5", size = 33636, upload-time = "2024-12-02T15:04:36.631Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/ed/df/f7cf07a65a96dd11d71f346f9c2863accdd4784da83af7181b067d556cbc/pynvml-12.0.0-py3-none-any.whl", hash = "sha256:fdff84b62a27dbe98e08e1a647eb77342bef1aebe0878bcd15e99a83fcbecb9e", size = 26560, upload-time = "2024-12-02T15:04:35.047Z" },
-]
-
-[[package]]
 name = "pyopenssl"
 version = "25.1.0"
 source = { registry = "https://pypi.org/simple" }
@@ -726,11 +714,11 @@ source = { editable = "." }
 dependencies = [
     { name = "acme" },
     { name = "cryptography" },
+    { name = "nvidia-ml-py" },
     { name = "paramiko" },
     { name = "prettytable" },
     { name = "psutil" },
     { name = "py-cpuinfo" },
-    { name = "pynvml" },
     { name = "pyotp" },
     { name = "pyyaml" },
     { name = "requests" },
@@ -754,11 +742,11 @@ requires-dist = [
     { name = "cryptography", specifier = ">=42.0.0" },
     { name = "mkdocs", marker = "extra == 'docs'", specifier = ">=1.6.0" },
     { name = "mkdocs-smzhbook-theme", marker = "extra == 'docs'", specifier = ">=1.3" },
+    { name = "nvidia-ml-py", specifier = ">=12.0.0" },
     { name = "paramiko", specifier = ">=3.5.1" },
     { name = "prettytable", specifier = ">=3.16.0" },
     { name = "psutil", specifier = ">=7.0.0" },
     { name = "py-cpuinfo", specifier = ">=9.0.0" },
-    { name = "pynvml", specifier = ">=12.0.0" },
     { name = "pyotp", specifier = ">=2.9.0" },
     { name = "pyyaml", specifier = ">=6.0.0" },
     { name = "requests", specifier = ">=2.31.0" },
