@@ -16,6 +16,8 @@ import json
 import sys
 from pathlib import Path
 
+from zxtoolbox import __version__
+
 import zxtoolbox.computer_info as cpi
 import zxtoolbox.pyopt_2fa as opt2fa
 import zxtoolbox.video_download as vd
@@ -29,6 +31,7 @@ def main():
         description="ZX Toolbox - 跨平台工具集合",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
+    parser.add_argument("-v", "--version", action="version", version=f"zxtoolbox {__version__}")
     subparsers = parser.add_subparsers(dest="command", help="可用命令")
 
     # ========== ci 子命令 - 计算机信息 ==========
