@@ -61,13 +61,8 @@ toolbox/
 | acme | ACME 协议（Let's Encrypt） | [github.com](https://github.com/certbot/certbot) |
 | cryptography | 加密功能 | [cryptography.io](https://cryptography.io/) |
 | requests | HTTP 请求 | [requests.readthedocs.io](https://requests.readthedocs.io/) |
-
-### 可选依赖
-
-| 包名 | 用途 | 安装方式 |
-|------|------|----------|
-| mkdocs | 文档站点构建 | `uv sync --extra docs` |
-| mkdocs-smzhbook-theme | MkDocs 主题 | `uv sync --extra docs` |
+| mkdocs | Documentation site building | [mkdocs.org](https://www.mkdocs.org/) |
+| mkdocs-smzhbook-theme | MkDocs theme | [github.com](https://github.com/smallzh/mkdocs-smzhbook-theme) |
 
 ## 0x04. 运行单元测试
 
