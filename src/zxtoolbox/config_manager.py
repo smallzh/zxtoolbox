@@ -603,8 +603,8 @@ def interactive_init(
 
         mkdocs_projects.append(project)
         summary = f"{project_dir}"
-        if proj.get("name"):
-            summary += f" (名称: {proj['name']})"
+        if project.get("name"):
+            summary += f" (名称: {project['name']})"
         if domain:
             summary += f" (域名: {domain})"
         print(f"  [OK] 已添加项目: {summary}")
