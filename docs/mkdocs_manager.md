@@ -36,6 +36,8 @@ zxtool mkdocs create ./my-docs --name "My Docs"
 
 ### 2. 构建单个项目
 
+#### 2.1 按目录构建
+
 ```bash
 zxtool mkdocs build <项目目录> [-o <输出目录>] [-c <配置文件>] [--strict]
 ```
@@ -63,6 +65,34 @@ zxtool mkdocs build ./my-docs -o ./output/html -c custom-mkdocs.yml
 zxtool mkdocs build ./my-docs -o ./output/html --strict
 ```
 
+#### 2.2 按项目名称构建
+
+通过项目名称从 `zxtool.toml` 配置文件查找项目并构建。配置文件中的 `output_dir`、`config_file`、`strict` 等参数会自动使用。
+
+```bash
+zxtool mkdocs build --name <项目名称> [-c <配置文件>] [-o <输出目录>] [--strict]
+```
+
+| 参数 | 说明 |
+|------|------|
+| `--name` | 项目名称（对应 `zxtool.toml` 中 `projects` 的 `name` 字段） |
+| `-c, --config` | zxtool.toml 配置文件路径（默认 `~/.config/zxtool.toml`） |
+| `-o, --output` | 输出目录（覆盖配置文件中的 output_dir） |
+| `--strict` | 严格模式（与配置文件中的 strict 取或） |
+
+**示例：**
+
+```bash
+# 按名称构建项目
+zxtool mkdocs build --name myblog
+
+# 指定配置文件构建
+zxtool mkdocs build --name myblog -c ./my-config.toml
+
+# 覆盖输出目录
+zxtool mkdocs build --name myblog -o ./custom-output
+```
+
 ### 3. 批量构建多个项目
 
 ```bash
@@ -74,6 +104,17 @@ zxtool mkdocs batch [配置文件] [--dry-run]
 | `config_file` | TOML 配置文件路径（可选，默认读取 `~/.config/zxtool.toml`） |
 | `--dry-run` | 仅打印构建计划，不实际执行 |
 
+**配置文件中项目字段说明：**
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `name` | string | ❌ | 项目唯一名称，用于 `mkdocs build --name` 按名称构建 |
+| `project_dir` | string | ✅ | MkDocs 项目目录 |
+| `output_dir` | string | ❌ | 输出目录 |
+| `config_file` | string | ❌ | 自定义配置文件 |
+| `strict` | boolean | ❌ | 是否严格模式 |
+| `git_repository` | string | ❌ | 远程 Git 仓库地址 |
+
 **配置文件路径优先级：**
 
 1. 命令行指定：`zxtool mkdocs batch ./my-config.toml`
@@ -83,10 +124,13 @@ zxtool mkdocs batch [配置文件] [--dry-run]
 
 ```toml
 [[projects]]
+name = "myblog"
 project_dir = "/path/to/project1"
 output_dir = "/path/to/output1"
+git_repository = "https://github.com/user/myblog.git"
 
 [[projects]]
+name = "api-docs"
 project_dir = "/path/to/project2"
 output_dir = "/path/to/output2"
 
@@ -95,6 +139,7 @@ project_dir = "/path/to/project3"
 output_dir = "/path/to/output3"
 config_file = "custom-mkdocs.yml"  # 可选，使用自定义配置文件
 strict = true                       # 可选，启用严格模式
+git_repository = "https://github.com/user/project3.git"
 ```
 
 **示例：**

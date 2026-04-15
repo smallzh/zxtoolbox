@@ -13,6 +13,7 @@ from zxtoolbox.mkdocs_manager import (
     serve_project,
     _load_batch_config,
     batch_build,
+    build_project_by_name,
 )
 
 
@@ -381,3 +382,100 @@ class TestServeProject:
         assert result is None
         captured = capsys.readouterr()
         assert "mkdocs 未安装" in captured.out
+
+
+class TestBuildProjectByName:
+    """Test building project by name from config."""
+
+    @patch("zxtoolbox.mkdocs_manager.build_project", return_value=True)
+    @patch("zxtoolbox.mkdocs_manager.load_project_by_name")
+    def test_build_by_name_found(self, mock_load, mock_build, capsys):
+        """Test building project by name when found in config."""
+        mock_load.return_value = {
+            "name": "myblog",
+            "project_dir": "/path/to/myblog",
+            "output_dir": "/site",
+            "config_file": "custom.yml",
+            "strict": True,
+        }
+
+        result = build_project_by_name("myblog")
+        assert result is True
+        mock_build.assert_called_once_with(
+            project_dir="/path/to/myblog",
+            output_dir="/site",
+            config_file="custom.yml",
+            strict=True,
+        )
+
+    @patch("zxtoolbox.mkdocs_manager.build_project", return_value=True)
+    @patch("zxtoolbox.mkdocs_manager.load_project_by_name")
+    def test_build_by_name_with_output_override(self, mock_load, mock_build, capsys):
+        """Test building project by name with output_dir override."""
+        mock_load.return_value = {
+            "name": "myblog",
+            "project_dir": "/path/to/myblog",
+            "output_dir": "/site",
+        }
+
+        result = build_project_by_name("myblog", output_dir="/custom/output")
+        assert result is True
+        mock_build.assert_called_once_with(
+            project_dir="/path/to/myblog",
+            output_dir="/custom/output",
+            config_file=None,
+            strict=False,
+        )
+
+    @patch("zxtoolbox.mkdocs_manager.load_project_by_name")
+    def test_build_by_name_not_found(self, mock_load, capsys):
+        """Test building project by name when name not found in config."""
+        mock_load.return_value = None
+
+        result = build_project_by_name("nonexistent")
+        assert result is False
+        captured = capsys.readouterr()
+        assert "未在配置文件中找到" in captured.out
+
+    @patch("zxtoolbox.mkdocs_manager.load_project_by_name")
+    def test_build_by_name_no_project_dir(self, mock_load, capsys):
+        """Test building project by name when project_dir is missing."""
+        mock_load.return_value = {"name": "myblog"}
+
+        result = build_project_by_name("myblog")
+        assert result is False
+        captured = capsys.readouterr()
+        assert "未配置 project_dir" in captured.out
+
+    @patch("zxtoolbox.mkdocs_manager.build_project", return_value=True)
+    @patch("zxtoolbox.mkdocs_manager.load_project_by_name")
+    def test_build_by_name_stict_from_config(self, mock_load, mock_build, capsys):
+        """Test building project by name uses strict from config."""
+        mock_load.return_value = {
+            "name": "myblog",
+            "project_dir": "/path/to/myblog",
+            "strict": True,
+        }
+
+        result = build_project_by_name("myblog")
+        assert result is True
+        # strict=True from config should be passed to build_project
+        mock_build.assert_called_once_with(
+            project_dir="/path/to/myblog",
+            output_dir=None,
+            config_file=None,
+            strict=True,
+        )
+
+    @patch("zxtoolbox.mkdocs_manager.build_project", return_value=True)
+    @patch("zxtoolbox.mkdocs_manager.load_project_by_name")
+    def test_build_by_name_custom_config_path(self, mock_load, mock_build, capsys):
+        """Test building project by name with custom config path."""
+        mock_load.return_value = {
+            "name": "myblog",
+            "project_dir": "/path/to/myblog",
+        }
+
+        result = build_project_by_name("myblog", config_path="/custom/zxtool.toml")
+        assert result is True
+        mock_load.assert_called_once_with("myblog", config_path="/custom/zxtool.toml")

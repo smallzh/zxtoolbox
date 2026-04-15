@@ -18,9 +18,11 @@ Git 用户和 Let's Encrypt 证书配置。
 
     # 项目配置
     [[projects]]
+    name = "myblog"
     project_dir = "/path/to/project1"
     domain = "example.com"
     output_dir = "/output"
+    git_repository = "https://github.com/user/myblog.git"
 
     # Git 用户配置
     [git]
@@ -66,11 +68,13 @@ def _generate_projects_section(projects: list[dict]) -> str:
 
     Args:
         projects: 项目配置列表，每个元素可包含：
+            - name: 项目唯一名称（可选）
             - project_dir: 项目目录（必填）
             - output_dir: MkDocs 输出目录
             - config_file: MkDocs 配置文件
             - strict: 是否启用严格模式
             - domain: 项目的域名（单个字符串，支持泛域名如 *.example.com）
+            - git_repository: 远程 Git 仓库地址（可选）
 
     Returns:
         TOML 格式的项目配置字符串。
@@ -87,6 +91,11 @@ def _generate_projects_section(projects: list[dict]) -> str:
 
     for proj in projects:
         lines.append("[[projects]]")
+
+        # name 字段（项目唯一标识）
+        if proj.get("name"):
+            lines.append(f"name = {_escape_toml_string(proj['name'])}")
+
         lines.append(
             f"project_dir = {_escape_toml_string(proj.get('project_dir', ''))}"
         )
@@ -104,6 +113,10 @@ def _generate_projects_section(projects: list[dict]) -> str:
         # 域名字段（单个字符串）
         if proj.get("domain"):
             lines.append(f"domain = {_escape_toml_string(proj['domain'])}")
+
+        # git_repository 字段（远程 Git 仓库地址）
+        if proj.get("git_repository"):
+            lines.append(f"git_repository = {_escape_toml_string(proj['git_repository'])}")
 
         lines.append("")
 
@@ -437,6 +450,33 @@ def load_projects_with_domain(
     return result
 
 
+def load_project_by_name(
+    name: str, config_path: str | Path | None = None
+) -> dict[str, Any] | None:
+    """根据 name 查找项目配置。
+
+    从 zxtool.toml 的 [[projects]] 节点中查找匹配 name 的项目。
+
+    Args:
+        name: 项目名称（唯一标识）。
+        config_path: 配置文件路径，默认为 ~/.config/zxtool.toml。
+
+    Returns:
+        匹配的项目配置字典，未找到则返回 None。
+
+    Raises:
+        FileNotFoundError: 配置文件不存在时。
+    """
+    data = load_config(config_path)
+    projects = data.get("projects", [])
+
+    for proj in projects:
+        if proj.get("name") == name:
+            return dict(proj)
+
+    return None
+
+
 def interactive_init(
     config_path: str | Path | None = None, force: bool = False
 ) -> bool:
@@ -537,6 +577,10 @@ def interactive_init(
 
         project: dict[str, Any] = {"project_dir": project_dir}
 
+        project_name = input("  项目名称 [唯一标识]: ").strip()
+        if project_name:
+            project["name"] = project_name
+
         output_dir = input("  MkDocs 输出目录 [默认 site]: ").strip()
         if output_dir:
             project["output_dir"] = output_dir
@@ -553,8 +597,14 @@ def interactive_init(
         if domain:
             project["domain"] = domain
 
+        git_repo = input("  Git 仓库地址（如 https://github.com/user/repo.git）: ").strip()
+        if git_repo:
+            project["git_repository"] = git_repo
+
         mkdocs_projects.append(project)
         summary = f"{project_dir}"
+        if proj.get("name"):
+            summary += f" (名称: {proj['name']})"
         if domain:
             summary += f" (域名: {domain})"
         print(f"  [OK] 已添加项目: {summary}")

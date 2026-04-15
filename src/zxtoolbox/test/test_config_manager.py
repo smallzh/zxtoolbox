@@ -19,6 +19,7 @@ from zxtoolbox.config_manager import (
     load_config,
     load_le_config,
     load_projects_with_domain,
+    load_project_by_name,
 )
 
 
@@ -607,3 +608,169 @@ class TestInteractiveInit:
         result = interactive_init(config_path)
         # Should return False due to EOFError during confirmation, or True if completed
         assert result is False or mock_input.call_count >= 1
+
+
+class TestGenerateProjectsWithNameAndGitRepo:
+    """Test projects section generation with name and git_repository fields."""
+
+    def test_project_with_name(self):
+        projects = [
+            {"name": "myblog", "project_dir": "/path/to/docs"}
+        ]
+        result = _generate_projects_section(projects)
+        assert 'name = "myblog"' in result
+        assert "[[projects]]" in result
+
+    def test_project_with_git_repository(self):
+        projects = [
+            {
+                "project_dir": "/path/to/docs",
+                "git_repository": "https://github.com/user/repo.git",
+            }
+        ]
+        result = _generate_projects_section(projects)
+        assert 'git_repository = "https://github.com/user/repo.git"' in result
+
+    def test_project_with_name_and_git_repository(self):
+        projects = [
+            {
+                "name": "myblog",
+                "project_dir": "/path/to/docs",
+                "domain": "example.com",
+                "git_repository": "https://github.com/user/myblog.git",
+            }
+        ]
+        result = _generate_projects_section(projects)
+        assert 'name = "myblog"' in result
+        assert 'domain = "example.com"' in result
+        assert 'git_repository = "https://github.com/user/myblog.git"' in result
+
+    def test_project_without_name(self):
+        """Project without name should not have name field."""
+        projects = [{"project_dir": "/path/to/docs"}]
+        result = _generate_projects_section(projects)
+        assert "name" not in result
+
+    def test_project_without_git_repository(self):
+        """Project without git_repository should not have git_repository field."""
+        projects = [{"project_dir": "/path/to/docs"}]
+        result = _generate_projects_section(projects)
+        assert "git_repository" not in result
+
+    def test_write_config_with_name_and_git_repo(self, tmp_path):
+        """Test writing config with name and git_repository fields."""
+        config_path = tmp_path / "zxtool.toml"
+        projects = [
+            {
+                "name": "myblog",
+                "project_dir": "/path/to/docs",
+                "domain": "example.com",
+                "output_dir": "/site",
+                "git_repository": "https://github.com/user/myblog.git",
+            }
+        ]
+        result = write_config(
+            config_path,
+            mkdocs_projects=projects,
+            force=True,
+        )
+        assert result is True
+        content = config_path.read_text(encoding="utf-8")
+        assert 'name = "myblog"' in content
+        assert 'git_repository = "https://github.com/user/myblog.git"' in content
+
+    def test_load_config_with_name_and_git_repo(self, tmp_path):
+        """Test loading config with name and git_repository fields."""
+        config_path = tmp_path / "zxtool.toml"
+        config_path.write_text('''
+[[projects]]
+name = "myblog"
+project_dir = "/path/to/docs"
+domain = "example.com"
+git_repository = "https://github.com/user/myblog.git"
+''', encoding="utf-8")
+
+        data = load_config(str(config_path))
+        assert len(data["projects"]) == 1
+        assert data["projects"][0]["name"] == "myblog"
+        assert data["projects"][0]["git_repository"] == "https://github.com/user/myblog.git"
+
+
+class TestLoadProjectByName:
+    """Test loading a project by name from config."""
+
+    def test_load_project_by_name_found(self, tmp_path):
+        """Test finding a project by name."""
+        config_path = tmp_path / "zxtool.toml"
+        config_path.write_text('''
+[[projects]]
+name = "myblog"
+project_dir = "/path/to/docs"
+domain = "example.com"
+git_repository = "https://github.com/user/myblog.git"
+
+[[projects]]
+name = "api-docs"
+project_dir = "/path/to/api-docs"
+output_dir = "/site"
+''', encoding="utf-8")
+
+        result = load_project_by_name("myblog", config_path=str(config_path))
+        assert result is not None
+        assert result["name"] == "myblog"
+        assert result["project_dir"] == "/path/to/docs"
+        assert result["git_repository"] == "https://github.com/user/myblog.git"
+
+    def test_load_project_by_name_second_project(self, tmp_path):
+        """Test finding the second project by name."""
+        config_path = tmp_path / "zxtool.toml"
+        config_path.write_text('''
+[[projects]]
+name = "myblog"
+project_dir = "/path/to/docs"
+
+[[projects]]
+name = "api-docs"
+project_dir = "/path/to/api-docs"
+''', encoding="utf-8")
+
+        result = load_project_by_name("api-docs", config_path=str(config_path))
+        assert result is not None
+        assert result["name"] == "api-docs"
+        assert result["project_dir"] == "/path/to/api-docs"
+
+    def test_load_project_by_name_not_found(self, tmp_path):
+        """Test returning None when name is not found."""
+        config_path = tmp_path / "zxtool.toml"
+        config_path.write_text('''
+[[projects]]
+name = "myblog"
+project_dir = "/path/to/docs"
+''', encoding="utf-8")
+
+        result = load_project_by_name("nonexistent", config_path=str(config_path))
+        assert result is None
+
+    def test_load_project_by_name_no_name_field(self, tmp_path):
+        """Test returning None when projects don't have name field."""
+        config_path = tmp_path / "zxtool.toml"
+        config_path.write_text('''
+[[projects]]
+project_dir = "/path/to/docs"
+''', encoding="utf-8")
+
+        result = load_project_by_name("myblog", config_path=str(config_path))
+        assert result is None
+
+    def test_load_project_by_name_file_not_found(self, tmp_path):
+        """Test FileNotFoundError when config file doesn't exist."""
+        with pytest.raises(FileNotFoundError):
+            load_project_by_name("myblog", config_path=str(tmp_path / "nonexistent.toml"))
+
+    def test_load_project_by_name_empty_projects(self, tmp_path):
+        """Test returning None when no projects in config."""
+        config_path = tmp_path / "zxtool.toml"
+        config_path.write_text('', encoding="utf-8")
+
+        result = load_project_by_name("myblog", config_path=str(config_path))
+        assert result is None

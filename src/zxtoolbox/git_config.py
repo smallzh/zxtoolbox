@@ -2,7 +2,7 @@
 
 检查和填充 Git 仓库的 .git/config 中的 user.name 和 user.email。
 支持从 ~/.config/zxtool.toml 的 [[git.user]] 节点读取默认配置。
-支持从远程仓库拉取更新（git pull）。
+支持从远程仓库拉取更新（git pull）和克隆项目（git clone）。
 """
 
 import configparser
@@ -295,6 +295,99 @@ def git_pull(project_dir: str | None = None, remote: str | None = None, branch: 
         return False
     except FileNotFoundError:
         print("错误: 未找到 git 命令，请确认 git 已安装并在 PATH 中")
+        return False
+
+
+def git_clone(repository: str, target_dir: str | None = None) -> bool:
+    """从远程仓库克隆项目（git clone）。
+
+    Args:
+        repository: 远程仓库地址。
+        target_dir: 克隆目标目录路径，默认为当前目录下的仓库名称。
+
+    Returns:
+        是否成功克隆。
+    """
+    cmd = ["git", "clone", repository]
+    if target_dir:
+        cmd.append(target_dir)
+
+    cwd = str(Path(target_dir).parent) if target_dir else os.getcwd()
+
+    try:
+        result = subprocess.run(
+            cmd,
+            cwd=cwd,
+            capture_output=True,
+            text=True,
+            timeout=300,
+        )
+        if result.stdout:
+            print(result.stdout, end="")
+        if result.stderr:
+            print(result.stderr, end="")
+        if result.returncode != 0:
+            print(f"错误: git clone 失败 (退出码 {result.returncode})")
+            return False
+        return True
+    except subprocess.TimeoutExpired:
+        print("错误: git clone 超时（300 秒）")
+        return False
+    except FileNotFoundError:
+        print("错误: 未找到 git 命令，请确认 git 已安装并在 PATH 中")
+        return False
+
+
+def git_pull_by_name(
+    name: str,
+    config_path: str | None = None,
+    remote: str | None = None,
+    branch: str | None = None,
+) -> bool:
+    """根据项目名称从配置文件查找项目并拉取更新。
+
+    如果项目目录存在，执行 git pull；如果不存在且配置了 git_repository，
+    则执行 git clone 将项目克隆到指定目录。
+
+    Args:
+        name: 项目名称（对应 zxtool.toml 中 projects 的 name 字段）。
+        config_path: 配置文件路径，默认为 ~/.config/zxtool.toml。
+        remote: 远程仓库名称（默认使用仓库配置的 upstream）。
+        branch: 分支名称（默认使用当前分支）。
+
+    Returns:
+        是否成功拉取或克隆。
+    """
+    from zxtoolbox.config_manager import load_project_by_name
+
+    project = load_project_by_name(name, config_path=config_path)
+    if project is None:
+        print(f"错误: 未在配置文件中找到名称为 '{name}' 的项目")
+        return False
+
+    project_dir = project.get("project_dir", "")
+    if not project_dir:
+        print(f"错误: 项目 '{name}' 未配置 project_dir")
+        return False
+
+    project_path = Path(project_dir).resolve()
+
+    # 检查项目目录是否存在
+    if project_path.exists() and find_git_dir(str(project_path)):
+        # 目录存在且是 git 仓库，执行 git pull
+        print(f"项目 '{name}' 目录已存在，执行 git pull: {project_path}")
+        return git_pull(project_dir=str(project_path), remote=remote, branch=branch)
+    elif project.get("git_repository"):
+        # 目录不存在但有 git_repository 配置，执行 git clone
+        print(f"项目 '{name}' 目录不存在，从远程仓库克隆: {project['git_repository']}")
+        # 确保父目录存在
+        project_path.parent.mkdir(parents=True, exist_ok=True)
+        return git_clone(
+            repository=project["git_repository"],
+            target_dir=str(project_path),
+        )
+    else:
+        print(f"错误: 项目 '{name}' 目录不存在 ({project_path}) 且未配置 git_repository")
         return False
 
 

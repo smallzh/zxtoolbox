@@ -18,6 +18,9 @@ from typing import Any
 import tomllib
 
 
+from zxtoolbox.config_manager import load_project_by_name
+
+
 # 默认配置文件路径
 DEFAULT_CONFIG_PATH = Path.home() / ".config" / "zxtool.toml"
 
@@ -343,3 +346,43 @@ def batch_build(
         print(f"  {status} {proj_dir}")
 
     return results
+
+
+def build_project_by_name(
+    name: str,
+    config_path: str | Path | None = None,
+    output_dir: str | Path | None = None,
+    strict: bool = False,
+) -> bool:
+    """根据项目名称从配置文件查找项目并构建。
+
+    Args:
+        name: 项目名称（对应 zxtool.toml 中 projects 的 name 字段）。
+        config_path: 配置文件路径，默认为 ~/.config/zxtool.toml。
+        output_dir: 输出目录，覆盖配置文件中的 output_dir。
+        strict: 是否启用严格模式。
+
+    Returns:
+        构建是否成功。
+    """
+    project = load_project_by_name(name, config_path=config_path)
+    if project is None:
+        print(f"[ERROR] 未在配置文件中找到名称为 '{name}' 的项目")
+        return False
+
+    project_dir = project.get("project_dir", "")
+    if not project_dir:
+        print(f"[ERROR] 项目 '{name}' 未配置 project_dir")
+        return False
+
+    # 使用配置文件中的值作为默认值，命令行参数优先
+    proj_output_dir = output_dir or project.get("output_dir")
+    proj_config_file = project.get("config_file")
+    proj_strict = strict or project.get("strict", False)
+
+    return build_project(
+        project_dir=project_dir,
+        output_dir=proj_output_dir,
+        config_file=proj_config_file,
+        strict=proj_strict,
+    )

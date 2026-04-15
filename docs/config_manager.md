@@ -165,16 +165,21 @@ zone_id = "your_cloudflare_zone_id"
 # ============================================
 
 [[projects]]
+name = "myblog"
 project_dir = "/var/www/myblog"
 domain = "myblog.example.com"
 output_dir = "/var/www/myblog/site"
+git_repository = "https://github.com/user/myblog.git"
 
 [[projects]]
+name = "api-docs"
 project_dir = "/var/www/api-docs"
 config_file = "custom-mkdocs.yml"
 strict = true
+git_repository = "https://github.com/user/api-docs.git"
 
 [[projects]]
+name = "main-site"
 project_dir = "/var/www/main-site"
 domain = "*.example.com"
 
@@ -224,11 +229,13 @@ Cloudflare 提供商：
 
 | 字段 | 类型 | 必填 | 说明 |
 |------|------|------|------|
+| `name` | string | ❌ | 项目唯一名称标识，用于 `git pull --name` 和 `mkdocs build --name` 按名称操作项目 |
 | `project_dir` | string | ✅ | 项目目录路径 |
 | `output_dir` | string | ❌ | MkDocs 构建输出目录（默认使用 mkdocs.yml 配置） |
 | `config_file` | string | ❌ | 自定义 MkDocs 配置文件（默认 mkdocs.yml） |
 | `strict` | boolean | ❌ | 是否启用严格模式（默认 false） |
 | `domain` | string | ❌ | 项目域名（用于 Let's Encrypt 证书自动签发，支持泛域名如 `*.example.com`） |
+| `git_repository` | string | ❌ | 远程 Git 仓库地址（用于 `git pull --name` 时自动克隆项目） |
 
 > **域名说明**: `domain` 字段为单个字符串。设置后，运行 `zxtool le batch` 可自动签发/续签该域名的 Let's Encrypt 证书。泛域名 `*.example.com` 会自动包含基础域名 `example.com`。
 

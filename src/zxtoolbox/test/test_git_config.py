@@ -19,6 +19,8 @@ from zxtoolbox.git_config import (
     check_git_config,
     fill_git_config,
     git_pull,
+    git_pull_by_name,
+    git_clone,
 )
 
 
@@ -369,3 +371,170 @@ class TestGitPull:
             with patch("zxtoolbox.git_config.find_git_dir", return_value=Path("/fake/project/.git")):
                 result = git_pull()
                 assert result is True
+
+
+class TestGitClone:
+    """Test git clone functionality."""
+
+    @patch("zxtoolbox.git_config.subprocess.run")
+    def test_git_clone_success(self, mock_run, capsys):
+        """Test successful git clone."""
+        mock_run.return_value = MagicMock(
+            returncode=0, stdout="Cloning into 'repo'...\n", stderr=""
+        )
+        result = git_clone("https://github.com/user/repo.git", target_dir="/fake/target")
+        assert result is True
+        captured = capsys.readouterr()
+        assert "Cloning" in captured.out
+
+    @patch("zxtoolbox.git_config.subprocess.run")
+    def test_git_clone_failure(self, mock_run, capsys):
+        """Test git clone failure."""
+        mock_run.return_value = MagicMock(
+            returncode=1, stdout="", stderr="fatal: repository not found\n"
+        )
+        result = git_clone("https://github.com/user/nonexistent.git", target_dir="/fake/target")
+        assert result is False
+        captured = capsys.readouterr()
+        assert "失败" in captured.out
+
+    @patch("zxtoolbox.git_config.subprocess.run")
+    def test_git_clone_timeout(self, mock_run, capsys):
+        """Test git clone timeout."""
+        mock_run.side_effect = subprocess.TimeoutExpired(cmd="git clone", timeout=300)
+        result = git_clone("https://github.com/user/repo.git", target_dir="/fake/target")
+        assert result is False
+        captured = capsys.readouterr()
+        assert "超时" in captured.out
+
+    @patch("zxtoolbox.git_config.subprocess.run")
+    def test_git_clone_git_not_found(self, mock_run, capsys):
+        """Test git clone when git is not installed."""
+        mock_run.side_effect = FileNotFoundError()
+        result = git_clone("https://github.com/user/repo.git", target_dir="/fake/target")
+        assert result is False
+        captured = capsys.readouterr()
+        assert "未找到 git 命令" in captured.out
+
+    @patch("zxtoolbox.git_config.subprocess.run")
+    def test_git_clone_without_target_dir(self, mock_run):
+        """Test git clone without target directory uses cwd."""
+        mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+        result = git_clone("https://github.com/user/repo.git")
+        assert result is True
+        # Verify command includes repo URL but no target dir
+        call_args = mock_run.call_args[0][0]
+        assert "https://github.com/user/repo.git" in call_args
+
+
+class TestGitPullByName:
+    """Test git pull by project name functionality."""
+
+    @patch("zxtoolbox.git_config.git_pull")
+    @patch("zxtoolbox.config_manager.load_config")
+    def test_pull_by_name_project_exists(self, mock_load_config, mock_pull, capsys):
+        """Test git pull by name when project directory exists."""
+        mock_load_config.return_value = {
+            "projects": [
+                {
+                    "name": "myblog",
+                    "project_dir": "/tmp/test-myblog",
+                    "git_repository": "https://github.com/user/myblog.git",
+                }
+            ]
+        }
+        mock_pull.return_value = True
+
+        with patch.object(Path, "exists", return_value=True):
+            with patch("zxtoolbox.git_config.find_git_dir", return_value=Path("/tmp/test-myblog/.git")):
+                result = git_pull_by_name("myblog")
+                assert result is True
+
+    @patch("zxtoolbox.git_config.git_clone")
+    @patch("zxtoolbox.config_manager.load_config")
+    def test_pull_by_name_clone_when_dir_missing(self, mock_load_config, mock_clone, capsys):
+        """Test git pull by name when directory doesn't exist but git_repository is configured."""
+        mock_load_config.return_value = {
+            "projects": [
+                {
+                    "name": "myblog",
+                    "project_dir": "/tmp/test-myblog-missing",
+                    "git_repository": "https://github.com/user/myblog.git",
+                }
+            ]
+        }
+        mock_clone.return_value = True
+
+        with patch.object(Path, "exists", return_value=False):
+            result = git_pull_by_name("myblog")
+            assert result is True
+            # Verify git_clone was called with the right arguments
+            mock_clone.assert_called_once()
+            call_args = mock_clone.call_args
+            assert call_args[1]["repository"] == "https://github.com/user/myblog.git"
+
+    @patch("zxtoolbox.config_manager.load_config")
+    def test_pull_by_name_not_found_in_config(self, mock_load_config, capsys):
+        """Test git pull by name when name is not found in config."""
+        mock_load_config.return_value = {"projects": []}
+
+        result = git_pull_by_name("nonexistent")
+        assert result is False
+        captured = capsys.readouterr()
+        assert "未在配置文件中找到" in captured.out
+
+    @patch("zxtoolbox.config_manager.load_config")
+    def test_pull_by_name_no_project_dir(self, mock_load_config, capsys):
+        """Test git pull by name when project_dir is missing."""
+        mock_load_config.return_value = {
+            "projects": [{"name": "myblog"}]
+        }
+
+        result = git_pull_by_name("myblog")
+        assert result is False
+        captured = capsys.readouterr()
+        assert "未配置 project_dir" in captured.out
+
+    @patch("zxtoolbox.config_manager.load_config")
+    def test_pull_by_name_dir_missing_no_git_repo(self, mock_load_config, capsys):
+        """Test git pull by name when dir is missing and no git_repository configured."""
+        mock_load_config.return_value = {
+            "projects": [
+                {
+                    "name": "myblog",
+                    "project_dir": "/tmp/test-myblog-no-git",
+                }
+            ]
+        }
+
+        with patch.object(Path, "exists", return_value=False):
+            result = git_pull_by_name("myblog")
+            assert result is False
+            captured = capsys.readouterr()
+            assert "未配置 git_repository" in captured.out
+
+    @patch("zxtoolbox.git_config.git_pull")
+    @patch("zxtoolbox.git_config.find_git_dir")
+    @patch("zxtoolbox.config_manager.load_config")
+    def test_pull_by_name_with_remote_and_branch(self, mock_load_config, mock_find, mock_pull, capsys):
+        """Test git pull by name with remote and branch parameters."""
+        mock_load_config.return_value = {
+            "projects": [
+                {
+                    "name": "myblog",
+                    "project_dir": "/tmp/test-myblog-remote",
+                    "git_repository": "https://github.com/user/myblog.git",
+                }
+            ]
+        }
+        mock_find.return_value = Path("/tmp/test-myblog-remote/.git")
+        mock_pull.return_value = True
+
+        with patch.object(Path, "exists", return_value=True):
+            result = git_pull_by_name("myblog", remote="origin", branch="main")
+            assert result is True
+            mock_pull.assert_called_once_with(
+                project_dir=str(Path("/tmp/test-myblog-remote").resolve()),
+                remote="origin",
+                branch="main",
+            )

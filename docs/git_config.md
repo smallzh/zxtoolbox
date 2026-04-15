@@ -10,6 +10,8 @@
 - **命令行指定**: 通过 `--name` 和 `--email` 直接指定配置值
 - **仓库自动发现**: 从指定目录向上查找 `.git` 目录，支持子目录执行
 - **拉取更新**: 从远程仓库拉取最新内容（git pull）
+- **按名称拉取**: 通过项目名称从配置文件查找项目并拉取更新
+- **自动克隆**: 如果项目目录不存在且配置了 `git_repository`，自动从远程克隆
 
 ## 0x02. 命令格式
 
@@ -106,6 +108,8 @@ zxtool git config fill /path/to/my-project --name "John Doe" --email "john@examp
 
 从远程仓库拉取最新内容并合并到当前分支。
 
+### 4.1 按项目目录拉取
+
 ```bash
 zxtool git pull [项目路径] [--remote 远程名称] [--branch 分支名称]
 ```
@@ -135,6 +139,40 @@ zxtool git pull --remote upstream --branch main
 zxtool git pull /path/to/my-project --remote origin --branch develop
 ```
 
+### 4.2 按项目名称拉取
+
+通过项目名称从 `zxtool.toml` 配置文件查找项目并拉取更新。如果项目目录不存在但配置了 `git_repository`，会自动从远程克隆项目。
+
+```bash
+zxtool git pull --name <项目名称> [--config 配置文件] [--remote 远程名称] [--branch 分支名称]
+```
+
+| 参数 | 说明 |
+|------|------|
+| `--name` | 项目名称（对应 `zxtool.toml` 中 `projects` 的 `name` 字段） |
+| `--config` | zxtool.toml 配置文件路径（默认 `~/.config/zxtool.toml`） |
+| `--remote` | 远程仓库名称（默认使用仓库配置的 upstream） |
+| `--branch` | 分支名称（默认使用当前分支） |
+
+**示例：**
+
+```bash
+# 按名称拉取项目更新
+zxtool git pull --name myblog
+
+# 指定配置文件拉取
+zxtool git pull --name myblog --config ./my-config.toml
+
+# 按名称拉取并指定远程仓库和分支
+zxtool git pull --name myblog --remote origin --branch main
+```
+
+**行为说明：**
+
+- 如果项目目录已存在且是 Git 仓库：执行 `git pull`
+- 如果项目目录不存在但配置了 `git_repository`：执行 `git clone` 将项目克隆到指定目录
+- 如果项目目录不存在且未配置 `git_repository`：报错提示
+
 **输出示例：**
 
 ```
@@ -152,9 +190,12 @@ Fast-forward
 
 ## 0x05. 全局配置文件格式
 
-在 `~/.config/zxtool.toml` 中配置 `[[git.user]]` 节点：
+在 `~/.config/zxtool.toml` 中配置 `[[git.user]]` 节点和项目 `git_repository`：
 
 ```toml
+# Git 用户配置
+[git]
+
 [[git.user]]
 name = "John Doe"
 email = "john@example.com"
@@ -162,13 +203,27 @@ email = "john@example.com"
 [[git.user]]
 name = "Jane Smith"
 email = "jane@company.com"
+
+# 项目配置（支持按名称拉取和自动克隆）
+[[projects]]
+name = "myblog"
+project_dir = "/path/to/myblog"
+git_repository = "https://github.com/user/myblog.git"
+
+[[projects]]
+name = "api-docs"
+project_dir = "/path/to/api-docs"
+git_repository = "https://github.com/user/api-docs.git"
 ```
 
-> **注意**: 目前使用第一个 `[[git.user]]` 条目作为默认配置。
+> **注意**: 目前使用第一个 `[[git.user]]` 条目作为默认配置。项目配置中的 `name` 字段用于 `git pull --name` 按名称拉取，`git_repository` 字段用于项目目录不存在时自动克隆。
 
 **使用示例：**
 
 ```bash
+# 按名称拉取项目（目录存在则 pull，不存在则 clone）
+zxtool git pull --name myblog
+
 # 配置后，fill 命令会自动读取
 zxtool git config fill /path/to/project
 # 输出:

@@ -101,10 +101,14 @@ def main():
     mkdocs_build_parser = mkdocs_subparsers.add_parser(
         "build", help="构建 MkDocs 项目到指定目录"
     )
-    mkdocs_build_parser.add_argument("project_dir", help="MkDocs 项目目录")
+    mkdocs_build_parser.add_argument("project_dir", nargs="?", default=None, help="MkDocs 项目目录")
     mkdocs_build_parser.add_argument("-o", "--output", type=str, default=None, help="输出目录")
     mkdocs_build_parser.add_argument(
         "-c", "--config", type=str, default=None, help="配置文件路径（相对或绝对）"
+    )
+    mkdocs_build_parser.add_argument(
+        "--name", type=str, default=None,
+        help="项目名称（根据 zxtool.toml 配置查找项目，优先于 project_dir）",
     )
     mkdocs_build_parser.add_argument(
         "--strict", action="store_true", help="严格模式（警告视为错误）"
@@ -249,10 +253,17 @@ def main():
         help="项目目录路径（默认当前目录）",
     )
     git_pull_parser.add_argument(
+        "--name", type=str, default=None,
+        help="项目名称（根据 zxtool.toml 配置查找项目，优先于 project_dir）",
+    )
+    git_pull_parser.add_argument(
         "--remote", type=str, default=None, help="远程仓库名称（默认使用仓库配置的 upstream）"
     )
     git_pull_parser.add_argument(
         "--branch", type=str, default=None, help="分支名称（默认使用当前分支）"
+    )
+    git_pull_parser.add_argument(
+        "--config", type=str, default=None, help="zxtool.toml 配置文件路径（使用 --name 时生效）"
     )
 
     # ========== le 子命令 - Let's Encrypt ==========
@@ -364,12 +375,20 @@ def main():
         if mkdocs_cmd == "create":
             mdm.create_project(args.project_dir, site_name=args.name)
         elif mkdocs_cmd == "build":
-            mdm.build_project(
-                project_dir=args.project_dir,
-                output_dir=args.output,
-                config_file=args.config,
-                strict=args.strict,
-            )
+            if getattr(args, "name", None):
+                mdm.build_project_by_name(
+                    name=args.name,
+                    config_path=args.config,
+                    output_dir=args.output,
+                    strict=args.strict,
+                )
+            else:
+                mdm.build_project(
+                    project_dir=args.project_dir,
+                    output_dir=args.output,
+                    config_file=args.config,
+                    strict=args.strict,
+                )
         elif mkdocs_cmd == "batch":
             mdm.batch_build(
                 config_path=args.config_file,
@@ -453,11 +472,19 @@ def main():
             else:
                 gc_config_parser.print_help()
         elif git_cmd == "pull":
-            gc.git_pull(
-                project_dir=args.project_dir,
-                remote=args.remote,
-                branch=args.branch,
-            )
+            if getattr(args, "name", None):
+                gc.git_pull_by_name(
+                    name=args.name,
+                    config_path=args.config,
+                    remote=args.remote,
+                    branch=args.branch,
+                )
+            else:
+                gc.git_pull(
+                    project_dir=args.project_dir,
+                    remote=args.remote,
+                    branch=args.branch,
+                )
         else:
             git_parser.print_help()
         return
