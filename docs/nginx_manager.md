@@ -68,9 +68,14 @@ zxtool nginx reload
 
 ## 0x03. 配置文件格式
 
-`zxtool.toml` 中的项目配置需要指定 `domain` 和 `output_dir` 字段：
+`zxtool.toml` 中的项目配置需要指定 `domain` 和 `output_dir` 字段，可以通过 `[nginx]` 全局配置和项目级 `listen_port` 字段自定义端口：
 
 ```toml
+# Nginx 全局配置
+[nginx]
+http_port = 80
+https_port = 443
+
 # Let's Encrypt 证书配置（用于 HTTPS）
 [letsencrypt]
 provider = "cloudflare"
@@ -90,6 +95,12 @@ output_dir = "/var/www/myblog/site"
 [[projects]]
 project_dir = "/var/www/docs"
 domain = "*.docs.example.com"
+
+# 项目级别端口覆盖（此站点监听 8080 端口）
+[[projects]]
+project_dir = "/var/www/dev-site"
+domain = "dev.example.com"
+listen_port = 8080
 ```
 
 **字段说明：**
@@ -99,6 +110,14 @@ domain = "*.docs.example.com"
 | `domain` | 站点域名，支持泛域名（如 `*.example.com`） |
 | `output_dir` | MkDocs 构建输出目录，将作为 Nginx 的 root 路径 |
 | `project_dir` | 项目目录路径 |
+| `listen_port` | （可选）项目级 Nginx 监听端口，覆盖全局 `http_port` |
+
+**Nginx 全局配置字段：**
+
+| 字段 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `http_port` | integer | 80 | Nginx HTTP 监听端口 |
+| `https_port` | integer | 443 | Nginx HTTPS 监听端口 |
 
 ## 0x04. 生成的配置内容
 

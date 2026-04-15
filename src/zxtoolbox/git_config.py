@@ -3,6 +3,7 @@
 检查和填充 Git 仓库的 .git/config 中的 user.name 和 user.email。
 支持从 ~/.config/zxtool.toml 的 [[git.user]] 节点读取默认配置。
 支持从远程仓库拉取更新（git pull）和克隆项目（git clone）。
+支持批量拉取或克隆配置文件中的所有项目。
 """
 
 import configparser
@@ -10,6 +11,7 @@ import os
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any
 
 
 def find_git_dir(start_path: str | None = None) -> Path | None:
@@ -389,6 +391,137 @@ def git_pull_by_name(
     else:
         print(f"错误: 项目 '{name}' 目录不存在 ({project_path}) 且未配置 git_repository")
         return False
+
+
+def git_pull_all_projects(
+    config_path: str | None = None,
+    remote: str | None = None,
+    branch: str | None = None,
+) -> list[dict[str, Any]]:
+    """根据配置文件批量拉取或克隆所有项目。
+
+    遍历配置文件中 [[projects]] 节点的所有项目，对每个项目：
+    - 如果项目目录存在且是 Git 仓库：执行 git pull
+    - 如果项目目录不存在但配置了 git_repository：执行 git clone
+    - 如果项目缺少必要字段：跳过并记录错误
+
+    Args:
+        config_path: 配置文件路径，默认为 ~/.config/zxtool.toml。
+        remote: 远程仓库名称（默认使用仓库配置的 upstream）。
+        branch: 分支名称（默认使用当前分支）。
+
+    Returns:
+        每个项目的操作结果列表，每个元素包含：
+            - name: 项目名称
+            - project_dir: 项目目录
+            - action: 执行的操作 ("pull" / "clone" / "skip" / "error")
+            - success: 是否成功
+            - message: 操作描述
+    """
+    from zxtoolbox.config_manager import load_config
+
+    if config_path is None:
+        config_path = os.path.expanduser("~/.config/zxtool.toml")
+
+    config_file = Path(config_path)
+    if not config_file.exists():
+        print(f"错误: 配置文件不存在: {config_path}")
+        return []
+
+    try:
+        data = load_config(str(config_file))
+    except (FileNotFoundError, ValueError) as e:
+        print(f"错误: 读取配置文件失败: {e}")
+        return []
+
+    projects = data.get("projects", [])
+    if not projects:
+        print("配置文件中未找到 [[projects]] 条目")
+        return []
+
+    results: list[dict[str, Any]] = []
+    total = len(projects)
+
+    for i, proj in enumerate(projects, 1):
+        name = proj.get("name", "")
+        project_dir = proj.get("project_dir", "")
+        git_repository = proj.get("git_repository", "")
+
+        # 项目标识（优先使用 name，其次使用 project_dir）
+        identifier = name if name else project_dir
+
+        if not project_dir:
+            msg = f"项目 '{identifier}' 未配置 project_dir，跳过"
+            print(f"[{i}/{total}] [SKIP] {msg}")
+            results.append({
+                "name": name,
+                "project_dir": project_dir,
+                "action": "skip",
+                "success": False,
+                "message": msg,
+            })
+            continue
+
+        project_path = Path(project_dir).resolve()
+
+        # 检查项目目录是否存在且是 git 仓库
+        if project_path.exists() and find_git_dir(str(project_path)):
+            # 目录存在且是 git 仓库，执行 git pull
+            print(f"[{i}/{total}] 拉取项目: {identifier} ({project_path})")
+            success = git_pull(
+                project_dir=str(project_path),
+                remote=remote,
+                branch=branch,
+            )
+            action = "pull"
+            msg = "git pull 成功" if success else "git pull 失败"
+
+        elif git_repository:
+            # 目录不存在但有 git_repository 配置，执行 git clone
+            print(f"[{i}/{total}] 克隆项目: {identifier} ({git_repository})")
+            # 确保父目录存在
+            project_path.parent.mkdir(parents=True, exist_ok=True)
+            success = git_clone(
+                repository=git_repository,
+                target_dir=str(project_path),
+            )
+            action = "clone"
+            msg = "git clone 成功" if success else "git clone 失败"
+
+        else:
+            # 目录不存在且未配置 git_repository
+            msg = f"项目 '{identifier}' 目录不存在 ({project_path}) 且未配置 git_repository"
+            print(f"[{i}/{total}] [ERROR] {msg}")
+            results.append({
+                "name": name,
+                "project_dir": project_dir,
+                "action": "error",
+                "success": False,
+                "message": msg,
+            })
+            continue
+
+        results.append({
+            "name": name,
+            "project_dir": project_dir,
+            "action": action,
+            "success": success,
+            "message": msg,
+        })
+
+    # 汇总
+    pull_count = sum(1 for r in results if r["action"] == "pull")
+    clone_count = sum(1 for r in results if r["action"] == "clone")
+    skip_count = sum(1 for r in results if r["action"] == "skip")
+    error_count = sum(1 for r in results if r["action"] == "error")
+    success_count = sum(1 for r in results if r["success"])
+
+    print(f"\n{'=' * 40}")
+    print(f"批量操作完成: {success_count}/{total} 成功")
+    print(f"  pull: {pull_count}  clone: {clone_count}  跳过: {skip_count}  错误: {error_count}")
+    print(f"{'=' * 40}")
+
+    return results
 
 
 def main() -> None:

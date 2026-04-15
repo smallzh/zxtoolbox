@@ -1,7 +1,7 @@
 """zxtool.toml 配置文件管理模块。
 
 生成和管理 ~/.config/zxtool.toml 配置文件，支持 MkDocs 项目、
-Git 用户和 Let's Encrypt 证书配置。
+Git 用户、Let's Encrypt 证书和 Nginx 站点配置。
 
 配置文件结构::
 
@@ -16,6 +16,11 @@ Git 用户和 Let's Encrypt 证书配置。
     api_token = "xxx"
     zone_id = "yyy"
 
+    # Nginx 全局配置
+    [nginx]
+    http_port = 80
+    https_port = 443
+
     # 项目配置
     [[projects]]
     name = "myblog"
@@ -23,9 +28,11 @@ Git 用户和 Let's Encrypt 证书配置。
     domain = "example.com"
     output_dir = "/output"
     git_repository = "https://github.com/user/myblog.git"
+    listen_port = 8080
 
     # Git 用户配置
     [git]
+
     [[git.user]]
     name = "John"
     email = "john@example.com"
@@ -75,6 +82,7 @@ def _generate_projects_section(projects: list[dict]) -> str:
             - strict: 是否启用严格模式
             - domain: 项目的域名（单个字符串，支持泛域名如 *.example.com）
             - git_repository: 远程 Git 仓库地址（可选）
+            - listen_port: Nginx 监听端口（可选）
 
     Returns:
         TOML 格式的项目配置字符串。
@@ -118,6 +126,10 @@ def _generate_projects_section(projects: list[dict]) -> str:
         if proj.get("git_repository"):
             lines.append(f"git_repository = {_escape_toml_string(proj['git_repository'])}")
 
+        # listen_port 字段（Nginx 监听端口）
+        if proj.get("listen_port"):
+            lines.append(f"listen_port = {proj['listen_port']}")
+
         lines.append("")
 
     return "\n".join(lines)
@@ -129,15 +141,19 @@ def _generate_letsencrypt_section(
     staging: bool = True,
     email: str = "",
     provider_config: dict[str, str] | None = None,
+    challenge_type: str = "dns-01",
 ) -> str:
     """生成 Let's Encrypt 全局配置部分。
 
     Args:
-        provider: DNS 提供商名称 ("manual", "cloudflare", "aliyun")。
+        provider: 验证提供商名称。
+            DNS-01: "manual", "cloudflare", "aliyun"
+            HTTP-01: "webroot", "standalone"
         output_dir: 证书输出目录路径。
         staging: 是否使用测试环境。
         email: 联系邮箱。
-        provider_config: DNS 提供商配置字典。
+        provider_config: 验证提供商配置字典。
+        challenge_type: 验证方式 ("dns-01" 或 "http-01")。
 
     Returns:
         TOML 格式的 Let's Encrypt 配置字符串。
@@ -151,6 +167,7 @@ def _generate_letsencrypt_section(
     ]
 
     lines.append(f"provider = {_escape_toml_string(provider)}")
+    lines.append(f"challenge_type = {_escape_toml_string(challenge_type)}")
 
     if output_dir:
         lines.append(f"output_dir = {_escape_toml_string(output_dir)}")
@@ -205,16 +222,44 @@ def _generate_git_section(users: list[dict]) -> str:
     return "\n".join(lines)
 
 
+def _generate_nginx_section(
+    http_port: int = 80,
+    https_port: int = 443,
+) -> str:
+    """生成 Nginx 全局配置部分。
+
+    Args:
+        http_port: HTTP 监听端口（默认 80）。
+        https_port: HTTPS 监听端口（默认 443）。
+
+    Returns:
+        TOML 格式的 Nginx 配置字符串。
+    """
+    lines = [
+        "# ============================================",
+        "# Nginx 站点配置",
+        "# ============================================",
+        "",
+        "[nginx]",
+    ]
+
+    lines.append(f"http_port = {http_port}")
+    lines.append(f"https_port = {https_port}")
+    lines.append("")
+    return "\n".join(lines)
+
+
 def generate_config_content(
     mkdocs_projects: list[dict] | None = None,
     git_users: list[dict] | None = None,
     letsencrypt_config: dict[str, Any] | None = None,
+    nginx_config: dict[str, Any] | None = None,
 ) -> str:
     """生成完整的 zxtool.toml 配置文件内容。
 
     Args:
         mkdocs_projects: 项目配置列表。每个项目可包含 project_dir、
-            output_dir、config_file、strict、domain 等字段。
+            output_dir、config_file、strict、domain、listen_port 等字段。
         git_users: Git 用户配置列表。
         letsencrypt_config: Let's Encrypt 全局配置字典，可包含：
             - provider: DNS 提供商名称
@@ -222,6 +267,9 @@ def generate_config_content(
             - staging: 是否使用测试环境
             - email: 联系邮箱
             - provider_config: DNS 提供商配置
+        nginx_config: Nginx 全局配置字典，可包含：
+            - http_port: HTTP 监听端口（默认 80）
+            - https_port: HTTPS 监听端口（默认 443）
 
     Returns:
         完整的 TOML 配置文件内容。
@@ -236,6 +284,7 @@ def generate_config_content(
     parts.append("#   zxtool mkdocs batch          # 批量构建 MkDocs 项目")
     parts.append("#   zxtool git config fill       # 填充 Git 仓库 user 配置")
     parts.append("#   zxtool le batch               # 根据配置批量申请/续签证书")
+    parts.append("#   zxtool nginx generate         # 根据 Nginx 配置生成站点配置")
     parts.append("")
 
     # Let's Encrypt 配置
@@ -246,8 +295,17 @@ def generate_config_content(
             staging=letsencrypt_config.get("staging", True),
             email=letsencrypt_config.get("email", ""),
             provider_config=letsencrypt_config.get("provider_config"),
+            challenge_type=letsencrypt_config.get("challenge_type", "dns-01"),
         )
         parts.append(le_section)
+
+    # Nginx 配置
+    if nginx_config:
+        nginx_section = _generate_nginx_section(
+            http_port=nginx_config.get("http_port", 80),
+            https_port=nginx_config.get("https_port", 443),
+        )
+        parts.append(nginx_section)
 
     # 项目配置
     projects_section = _generate_projects_section(mkdocs_projects or [])
@@ -260,7 +318,7 @@ def generate_config_content(
         parts.append(git_section)
 
     # 如果没有任何配置，添加注释说明
-    if not mkdocs_projects and not git_users and not letsencrypt_config:
+    if not mkdocs_projects and not git_users and not letsencrypt_config and not nginx_config:
         parts.append("# 暂无配置项")
         parts.append("# 运行 'zxtool config init' 交互式生成配置")
         parts.append("")
@@ -273,6 +331,7 @@ def write_config(
     mkdocs_projects: list[dict] | None = None,
     git_users: list[dict] | None = None,
     letsencrypt_config: dict[str, Any] | None = None,
+    nginx_config: dict[str, Any] | None = None,
     force: bool = False,
 ) -> bool:
     """写入 zxtool.toml 配置文件。
@@ -282,6 +341,9 @@ def write_config(
         mkdocs_projects: 项目配置列表。每个项目可包含 domain 字段。
         git_users: Git 用户配置列表。
         letsencrypt_config: Let's Encrypt 全局配置字典。
+        nginx_config: Nginx 全局配置字典，可包含：
+            - http_port: HTTP 监听端口（默认 80）
+            - https_port: HTTPS 监听端口（默认 443）
         force: 是否覆盖已存在的文件。
 
     Returns:
@@ -306,6 +368,7 @@ def write_config(
         mkdocs_projects=mkdocs_projects,
         git_users=git_users,
         letsencrypt_config=letsencrypt_config,
+        nginx_config=nginx_config,
     )
 
     # 写入文件
@@ -368,11 +431,12 @@ def load_le_config(config_path: str | Path | None = None) -> dict[str, Any]:
 
     Returns:
         Let's Encrypt 配置字典，包含:
-            - provider: DNS 提供商名称 (默认 "manual")
+            - provider: 验证提供商名称 (默认 "manual")
             - output_dir: 证书输出目录 (默认 "out_le")
             - staging: 是否使用测试环境 (默认 True)
             - email: 联系邮箱 (默认 "")
-            - provider_config: DNS 提供商配置字典 (默认 {})
+            - provider_config: 验证提供商配置字典 (默认 {})
+            - challenge_type: 验证方式 (默认 "dns-01")
 
     Raises:
         FileNotFoundError: 配置文件不存在时。
@@ -385,6 +449,31 @@ def load_le_config(config_path: str | Path | None = None) -> dict[str, Any]:
         "staging": le.get("staging", True),
         "email": le.get("email", ""),
         "provider_config": le.get("provider_config", {}),
+        "challenge_type": le.get("challenge_type", "dns-01"),
+    }
+
+
+def load_nginx_config(config_path: str | Path | None = None) -> dict[str, Any]:
+    """加载 Nginx 全局配置。
+
+    从 zxtool.toml 的 [nginx] 节点读取配置。
+
+    Args:
+        config_path: 配置文件路径，默认为 ~/.config/zxtool.toml。
+
+    Returns:
+        Nginx 配置字典，包含:
+            - http_port: HTTP 监听端口 (默认 80)
+            - https_port: HTTPS 监听端口 (默认 443)
+
+    Raises:
+        FileNotFoundError: 配置文件不存在时。
+    """
+    data = load_config(config_path)
+    nginx = data.get("nginx", {})
+    return {
+        "http_port": nginx.get("http_port", 80),
+        "https_port": nginx.get("https_port", 443),
     }
 
 
@@ -428,6 +517,7 @@ def load_projects_with_domain(
         "staging": True,
         "email": "",
         "provider_config": {},
+        "challenge_type": "dns-01",
     }
     if "letsencrypt" in data:
         le_sec = data["letsencrypt"]
@@ -437,6 +527,7 @@ def load_projects_with_domain(
             "staging": le_sec.get("staging", True),
             "email": le_sec.get("email", ""),
             "provider_config": le_sec.get("provider_config", {}),
+            "challenge_type": le_sec.get("challenge_type", "dns-01"),
         }
 
     result = []
@@ -515,6 +606,7 @@ def interactive_init(
     mkdocs_projects = []
     git_users = []
     letsencrypt_config = None
+    nginx_config = None
 
     # --- Let's Encrypt 配置 ---
     print("\n--- Let's Encrypt 证书配置 ---")
@@ -527,8 +619,23 @@ def interactive_init(
     if setup_le in ("y", "yes"):
         letsencrypt_config = {}
         try:
-            provider = input("  DNS 提供商 [manual/cloudflare/aliyun, 默认 manual]: ").strip().lower()
-            letsencrypt_config["provider"] = provider if provider else "manual"
+            challenge_type = input(
+                "  验证方式 [dns-01/http-01, 默认 dns-01]: "
+            ).strip().lower()
+            challenge_type = challenge_type if challenge_type in ("dns-01", "http-01") else "dns-01"
+            letsencrypt_config["challenge_type"] = challenge_type
+
+            # 根据验证方式选择提供商
+            if challenge_type == "http-01":
+                provider = input(
+                    "  HTTP-01 提供商 [webroot/standalone, 默认 standalone]: "
+                ).strip().lower()
+                letsencrypt_config["provider"] = provider if provider in ("webroot", "standalone") else "standalone"
+            else:
+                provider = input(
+                    "  DNS 提供商 [manual/cloudflare/aliyun, 默认 manual]: "
+                ).strip().lower()
+                letsencrypt_config["provider"] = provider if provider else "manual"
 
             output_dir = input("  证书输出目录 [默认 out_le]: ").strip()
             letsencrypt_config["output_dir"] = output_dir if output_dir else "out_le"
@@ -539,10 +646,15 @@ def interactive_init(
             staging = input("  使用测试环境? [Y/n]: ").strip().lower()
             letsencrypt_config["staging"] = staging not in ("n", "no")
 
-            # DNS 提供商配置
+            # 验证提供商配置
             provider_name = letsencrypt_config["provider"]
             provider_config = {}
-            if provider_name == "cloudflare":
+            if challenge_type == "http-01":
+                if provider_name == "webroot":
+                    webroot = input("  Webroot 路径 (如 /var/www/html): ").strip()
+                    provider_config["webroot"] = webroot
+                # standalone 无需额外配置
+            elif provider_name == "cloudflare":
                 api_token = input("  Cloudflare API Token: ").strip()
                 zone_id = input("  Cloudflare Zone ID: ").strip()
                 provider_config["api_token"] = api_token
@@ -560,6 +672,31 @@ def interactive_init(
         except (EOFError, KeyboardInterrupt):
             print("\n")
             letsencrypt_config = None
+
+    # --- Nginx 配置 ---
+    print("\n--- Nginx 站点配置 ---")
+    try:
+        setup_nginx = input("配置 Nginx 站点端口? (y/N): ").strip().lower()
+    except (EOFError, KeyboardInterrupt):
+        print("\n")
+        setup_nginx = "n"
+
+    if setup_nginx in ("y", "yes"):
+        nginx_config = {}
+        try:
+            http_port_str = input("  HTTP 端口 [默认 80]: ").strip()
+            nginx_config["http_port"] = int(http_port_str) if http_port_str else 80
+
+            https_port_str = input("  HTTPS 端口 [默认 443]: ").strip()
+            nginx_config["https_port"] = int(https_port_str) if https_port_str else 443
+
+            print("  [OK] Nginx 配置已添加")
+        except (EOFError, KeyboardInterrupt):
+            print("\n")
+            nginx_config = None
+        except ValueError:
+            print("  [WARN] 端口格式无效，使用默认值")
+            nginx_config = {"http_port": 80, "https_port": 443}
 
     # --- MkDocs / 项目配置 ---
     print("\n--- 项目配置 ---")
@@ -600,6 +737,13 @@ def interactive_init(
         git_repo = input("  Git 仓库地址（如 https://github.com/user/repo.git）: ").strip()
         if git_repo:
             project["git_repository"] = git_repo
+
+        listen_port_str = input("  Nginx 监听端口 [默认使用全局配置]: ").strip()
+        if listen_port_str:
+            try:
+                project["listen_port"] = int(listen_port_str)
+            except ValueError:
+                print("  [WARN] 端口格式无效，跳过")
 
         mkdocs_projects.append(project)
         summary = f"{project_dir}"
@@ -643,13 +787,21 @@ def interactive_init(
 
     if letsencrypt_config:
         print(f"\nLet's Encrypt:")
-        print(f"  DNS 提供商: {letsencrypt_config.get('provider', 'manual')}")
+        print(f"  验证方式:   {letsencrypt_config.get('challenge_type', 'dns-01')}")
+        print(f"  提供商:     {letsencrypt_config.get('provider', 'manual')}")
         print(f"  输出目录:   {letsencrypt_config.get('output_dir', 'out_le')}")
         print(f"  环境:       {'测试' if letsencrypt_config.get('staging', True) else '生产'}")
         if letsencrypt_config.get("email"):
             print(f"  联系邮箱:   {letsencrypt_config['email']}")
     else:
         print("\nLet's Encrypt: 未配置")
+
+    if nginx_config:
+        print(f"\nNginx:")
+        print(f"  HTTP 端口:  {nginx_config.get('http_port', 80)}")
+        print(f"  HTTPS 端口: {nginx_config.get('https_port', 443)}")
+    else:
+        print("\nNginx: 未配置")
 
     if mkdocs_projects:
         print(f"\n项目: {len(mkdocs_projects)} 个")
@@ -685,6 +837,7 @@ def interactive_init(
         mkdocs_projects=mkdocs_projects if mkdocs_projects else None,
         git_users=git_users if git_users else None,
         letsencrypt_config=letsencrypt_config,
+        nginx_config=nginx_config,
         force=True,
     )
 
@@ -694,7 +847,8 @@ def interactive_init(
         print(f"\n使用方式:")
         print(f"  zxtool mkdocs batch              # 批量构建 MkDocs")
         print(f"  zxtool git config fill           # 填充 Git user 配置")
-        print(f"  zxtool le batch                   # 根据配置批量申请/续签证书")
+        print(f"  zxtool le batch                  # 根据配置批量申请/续签证书")
+        print(f"  zxtool nginx generate            # 根据 Nginx 配置生成站点配置")
 
     return success
 

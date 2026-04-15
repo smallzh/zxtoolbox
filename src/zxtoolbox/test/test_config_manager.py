@@ -13,11 +13,13 @@ from zxtoolbox.config_manager import (
     _generate_projects_section,
     _generate_letsencrypt_section,
     _generate_git_section,
+    _generate_nginx_section,
     generate_config_content,
     write_config,
     show_config,
     load_config,
     load_le_config,
+    load_nginx_config,
     load_projects_with_domain,
     load_project_by_name,
 )
@@ -597,13 +599,13 @@ domain = "*.example.com"
 class TestInteractiveInit:
     """Test interactive config initialization."""
 
-    @patch("builtins.input", side_effect=["n", "", "", EOFError()])
+    @patch("builtins.input", side_effect=["n", "n", "", "", EOFError()])
     def test_interactive_init_skip_all(self, mock_input, tmp_path):
-        """Test interactive init skipping LE, projects, and git sections."""
+        """Test interactive init skipping LE, nginx, projects, and git sections."""
         config_path = tmp_path / "zxtool.toml"
         from zxtoolbox.config_manager import interactive_init
 
-        # Inputs: "n" = skip LE config, "" = skip project dir, "" = skip git name
+        # Inputs: "n" = skip LE config, "n" = skip nginx, "" = skip project dir, "" = skip git name
         # Then EOFError on confirmation or next prompt
         result = interactive_init(config_path)
         # Should return False due to EOFError during confirmation, or True if completed
@@ -774,3 +776,124 @@ project_dir = "/path/to/docs"
 
         result = load_project_by_name("myblog", config_path=str(config_path))
         assert result is None
+
+
+class TestGenerateNginxSection:
+    """Test Nginx config section generation."""
+
+    def test_default_ports(self):
+        result = _generate_nginx_section()
+        assert "[nginx]" in result
+        assert "http_port = 80" in result
+        assert "https_port = 443" in result
+
+    def test_custom_ports(self):
+        result = _generate_nginx_section(http_port=8080, https_port=8443)
+        assert "http_port = 8080" in result
+        assert "https_port = 8443" in result
+
+
+class TestLoadNginxConfig:
+    """Test Nginx config loading."""
+
+    def test_load_nginx_config_full(self, tmp_path):
+        """Test loading complete nginx config."""
+        config_path = tmp_path / "zxtool.toml"
+        config_path.write_text('''
+[nginx]
+http_port = 8080
+https_port = 8443
+''', encoding="utf-8")
+
+        nginx_config = load_nginx_config(str(config_path))
+        assert nginx_config["http_port"] == 8080
+        assert nginx_config["https_port"] == 8443
+
+    def test_load_nginx_config_defaults(self, tmp_path):
+        """Test nginx config defaults when section is missing."""
+        config_path = tmp_path / "zxtool.toml"
+        config_path.write_text('[[projects]]\nproject_dir = "/test"\n', encoding="utf-8")
+
+        nginx_config = load_nginx_config(str(config_path))
+        assert nginx_config["http_port"] == 80
+        assert nginx_config["https_port"] == 443
+
+
+class TestConfigWithNginx:
+    """Test full config generation with Nginx section."""
+
+    def test_config_with_nginx(self):
+        nginx_config = {"http_port": 8080, "https_port": 8443}
+        result = generate_config_content(nginx_config=nginx_config)
+        assert "[nginx]" in result
+        assert "http_port = 8080" in result
+        assert "https_port = 8443" in result
+
+    def test_config_with_nginx_and_projects(self):
+        nginx_config = {"http_port": 80, "https_port": 443}
+        projects = [
+            {
+                "project_dir": "/myproject",
+                "domain": "example.com",
+                "listen_port": 8080,
+            },
+        ]
+        result = generate_config_content(
+            mkdocs_projects=projects,
+            nginx_config=nginx_config,
+        )
+        assert "[nginx]" in result
+        assert "[[projects]]" in result
+        assert "listen_port = 8080" in result
+
+    def test_write_config_with_nginx(self, tmp_path):
+        """Test writing config with Nginx settings."""
+        config_path = tmp_path / "zxtool.toml"
+        nginx_config = {"http_port": 8080, "https_port": 8443}
+        result = write_config(
+            config_path,
+            nginx_config=nginx_config,
+            force=True,
+        )
+        assert result is True
+        content = config_path.read_text(encoding="utf-8")
+        assert "[nginx]" in content
+        assert "http_port = 8080" in content
+        assert "https_port = 8443" in content
+
+    def test_load_config_with_nginx(self, tmp_path):
+        """Test loading config with Nginx section."""
+        config_path = tmp_path / "zxtool.toml"
+        config_path.write_text('''
+[nginx]
+http_port = 8080
+https_port = 8443
+
+[[projects]]
+project_dir = "/myproject"
+domain = "example.com"
+listen_port = 9090
+''', encoding="utf-8")
+
+        data = load_config(str(config_path))
+        assert data["nginx"]["http_port"] == 8080
+        assert data["nginx"]["https_port"] == 8443
+        assert data["projects"][0]["listen_port"] == 9090
+
+    def test_project_with_listen_port(self):
+        """Test project with listen_port field."""
+        projects = [
+            {
+                "project_dir": "/path/to/docs",
+                "domain": "example.com",
+                "listen_port": 8080,
+            }
+        ]
+        result = _generate_projects_section(projects)
+        assert "listen_port = 8080" in result
+
+    def test_project_without_listen_port(self):
+        """Project without listen_port should not have listen_port field."""
+        projects = [{"project_dir": "/path/to/docs"}]
+        result = _generate_projects_section(projects)
+        assert "listen_port" not in result

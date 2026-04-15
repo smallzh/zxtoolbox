@@ -1,6 +1,7 @@
 """Tests for zxtoolbox.cli module."""
 
 import sys
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
@@ -184,13 +185,13 @@ class TestCliGit:
 
     @patch("zxtoolbox.git_config.git_pull")
     def test_git_pull_default(self, mock_pull, capsys):
-        """Test git pull with default options."""
+        """Test git pull with default options (no .git in cwd -> batch mode)."""
         mock_pull.return_value = True
         with patch.object(sys, "argv", ["zxtool", "git", "pull"]):
-            cli.main()
-        mock_pull.assert_called_once_with(
-            project_dir=None, remote=None, branch=None
-        )
+            with patch("zxtoolbox.git_config.find_git_dir", return_value=None):
+                with patch("zxtoolbox.git_config.git_pull_all_projects", return_value=[]):
+                    cli.main()
+        # When no .git in cwd, should call git_pull_all_projects
 
     @patch("zxtoolbox.git_config.git_pull")
     def test_git_pull_with_project_dir(self, mock_pull, capsys):
@@ -240,6 +241,39 @@ class TestCliGit:
             cli.main()
         mock_pull.assert_called_once_with(
             project_dir="/my/project", remote="origin", branch="dev"
+        )
+
+    @patch("zxtoolbox.git_config.git_pull")
+    def test_git_pull_with_git_in_cwd(self, mock_pull, capsys):
+        """Test git pull with .git in current directory calls git_pull."""
+        mock_pull.return_value = True
+        with patch.object(sys, "argv", ["zxtool", "git", "pull"]):
+            with patch("zxtoolbox.git_config.find_git_dir", return_value=Path("/cwd/.git")):
+                cli.main()
+        mock_pull.assert_called_once_with(
+            project_dir=None, remote=None, branch=None
+        )
+
+    @patch("zxtoolbox.git_config.git_pull_all_projects")
+    def test_git_pull_batch_mode(self, mock_batch, capsys):
+        """Test git pull without .git in cwd calls batch mode."""
+        mock_batch.return_value = []
+        with patch.object(sys, "argv", ["zxtool", "git", "pull"]):
+            with patch("zxtoolbox.git_config.find_git_dir", return_value=None):
+                cli.main()
+        mock_batch.assert_called_once_with(
+            config_path=None, remote=None, branch=None
+        )
+
+    @patch("zxtoolbox.git_config.git_pull_all_projects")
+    def test_git_pull_batch_with_config(self, mock_batch, capsys):
+        """Test git pull batch mode with config path."""
+        mock_batch.return_value = []
+        with patch.object(sys, "argv", ["zxtool", "git", "pull", "--config", "/custom.toml"]):
+            with patch("zxtoolbox.git_config.find_git_dir", return_value=None):
+                cli.main()
+        mock_batch.assert_called_once_with(
+            config_path="/custom.toml", remote=None, branch=None
         )
 
 
@@ -537,10 +571,42 @@ class TestCliLetsEncrypt:
 
     @patch("zxtoolbox.letsencrypt.init")
     def test_le_init(self, mock_init, capsys):
-        """Test le init command."""
-        with patch.object(sys, "argv", ["zxtool", "le", "init"]):
+        """Test le init command uses config output_dir when --output not specified."""
+        # When no config file exists, should fall back to default "out_le"
+        with patch.object(sys, "argv", ["zxtool", "le", "init"]), \
+             patch("zxtoolbox.config_manager.load_le_config", side_effect=FileNotFoundError):
             cli.main()
         mock_init.assert_called_once()
+        # Verify default out_le path is used
+        called_path = mock_init.call_args[0][0]
+        assert called_path.name == "out_le"
+
+    @patch("zxtoolbox.letsencrypt.init")
+    def test_le_init_with_config_output_dir(self, mock_init, capsys):
+        """Test le init reads output_dir from zxtool.toml config."""
+        config_output_dir = "custom_certs"
+        with patch.object(sys, "argv", ["zxtool", "le", "init"]), \
+             patch("zxtoolbox.config_manager.load_le_config", return_value={
+                 "provider": "manual",
+                 "output_dir": config_output_dir,
+                 "staging": True,
+                 "email": "",
+                 "provider_config": {},
+             }):
+            cli.main()
+        mock_init.assert_called_once()
+        called_path = mock_init.call_args[0][0]
+        # Path.resolve() on Windows may change the string, so check the name
+        assert called_path.name == config_output_dir or config_output_dir in str(called_path)
+
+    @patch("zxtoolbox.letsencrypt.init")
+    def test_le_init_with_explicit_output(self, mock_init, capsys):
+        """Test le init --output overrides config output_dir."""
+        with patch.object(sys, "argv", ["zxtool", "le", "init", "--output", "explicit_path"]):
+            cli.main()
+        mock_init.assert_called_once()
+        called_path = mock_init.call_args[0][0]
+        assert called_path.name == "explicit_path"
 
     @patch("zxtoolbox.letsencrypt.show_status")
     def test_le_status(self, mock_status, capsys):

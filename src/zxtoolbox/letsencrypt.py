@@ -5,8 +5,10 @@
 功能：
 - 通过 ACME v2 协议从 Let's Encrypt 获取证书
 - 支持 DNS-01 验证（唯一支持泛域名 *.example.com 的方式）
+- 支持 HTTP-01 验证（适用于普通二级域名，无需 DNS 操作）
 - 支持多域名和泛二级域名混合签发
 - 可插拔 DNS 提供商接口（手动 / Cloudflare / 阿里云）
+- 可插拔 HTTP-01 验证方式（webroot / standalone）
 - 证书到期自动检测和续签
 - 定期执行支持（cron / systemd timer）
 
@@ -14,9 +16,13 @@ ACME v2 协议流程：
 1. 获取 Directory（服务端点列表）
 2. 注册/加载 ACME 账户
 3. 创建订单（newOrder），提交 CSR
-4. 对每个域名完成 DNS-01 验证
+4. 对每个域名完成验证（DNS-01 或 HTTP-01）
 5. 完成订单（finalize），获取证书
 6. 下载证书链并保存到本地
+
+验证方式对比：
+- DNS-01：支持泛域名 (*.example.com)，需要 DNS 提供商 API 或手动操作
+- HTTP-01：仅支持普通域名，需要在 Web 服务器放置验证文件或启动临时服务器
 """
 
 from __future__ import annotations
@@ -362,6 +368,208 @@ def get_provider(name: str, config: Optional[Dict[str, Any]] = None) -> DNSProvi
 
 
 # ============================================================
+# HTTP-01 验证提供商接口
+# ============================================================
+
+
+class HTTP01Provider:
+    """HTTP-01 验证提供商基类。
+
+    所有 HTTP-01 提供商必须实现 setup_challenge 和 cleanup_challenge 方法。
+    ACME 协议要求在待验证域名的
+    http://<domain>/.well-known/acme-challenge/<token>
+    路径下提供 key authorization 文件。
+    """
+
+    name = "base"
+
+    def setup_challenge(
+        self, domain: str, token: str, key_authorization: str
+    ) -> None:
+        """设置 HTTP-01 验证资源。
+
+        在验证开始前调用，用于准备验证文件或启动服务器。
+
+        Args:
+            domain: 待验证的域名
+            token: ACME 挑战 token
+            key_authorization: key authorization 字符串（token.thumbprint）
+        """
+        raise NotImplementedError
+
+    def cleanup_challenge(
+        self, domain: str, token: str, key_authorization: str
+    ) -> None:
+        """清理 HTTP-01 验证资源。
+
+        验证完成后调用，用于删除验证文件或停止服务器。
+        """
+        raise NotImplementedError
+
+
+class WebrootProvider(HTTP01Provider):
+    """Webroot HTTP-01 验证提供商。
+
+    将验证文件写入 Web 服务器的根目录下的
+    .well-known/acme-challenge/ 路径中。
+    适用于已有 Web 服务器（如 Nginx、Apache）运行的场景。
+
+    provider_config 必须包含：
+        webroot: Web 服务器根目录路径
+            例如: /var/www/html 或 /usr/share/nginx/html
+    """
+
+    name = "webroot"
+
+    def __init__(self, config: Optional[Dict[str, Any]] = None) -> None:
+        self._webroot = (config or {}).get("webroot", "")
+        self._written_files: List[Path] = []
+
+        if not self._webroot:
+            raise ValueError(
+                "WebrootProvider 需要 webroot 配置。\n"
+                '示例: --provider-config \'{"webroot":"/var/www/html"}\''
+            )
+
+        self._webroot_path = Path(self._webroot)
+
+    def setup_challenge(
+        self, domain: str, token: str, key_authorization: str
+    ) -> None:
+        """将验证文件写入 webroot 目录。"""
+        challenge_dir = self._webroot_path / ".well-known" / "acme-challenge"
+        challenge_dir.mkdir(parents=True, exist_ok=True)
+
+        challenge_file = challenge_dir / token
+        challenge_file.write_text(key_authorization, encoding="utf-8")
+        self._written_files.append(challenge_file)
+
+        logger.info(
+            "HTTP-01 验证文件已写入: %s (域名: %s)",
+            challenge_file,
+            domain,
+        )
+
+    def cleanup_challenge(
+        self, domain: str, token: str, key_authorization: str
+    ) -> None:
+        """删除验证文件。"""
+        challenge_dir = self._webroot_path / ".well-known" / "acme-challenge"
+
+        for challenge_file in list(self._written_files):
+            try:
+                if challenge_file.exists():
+                    challenge_file.unlink()
+                    logger.info("已删除验证文件: %s", challenge_file)
+            except Exception as e:
+                logger.warning("删除验证文件失败: %s - %s", challenge_file, e)
+        self._written_files.clear()
+
+        # 尝试清理 .well-known/acme-challenge 目录（如果为空）
+        try:
+            if challenge_dir.exists() and not any(challenge_dir.iterdir()):
+                challenge_dir.rmdir()
+                acme_dir = challenge_dir.parent
+                if not any(acme_dir.iterdir()):
+                    acme_dir.rmdir()
+        except Exception:
+            pass
+
+
+class StandaloneProvider(HTTP01Provider):
+    """独立服务器 HTTP-01 验证提供商。
+
+    启动一个临时 HTTP 服务器监听 80 端口，自动响应 ACME 验证请求。
+    适用于没有 Web 服务器的场景（需要 80 端口可用）。
+
+    provider_config 可选包含：
+        port: 监听端口（默认 80）
+        bind_addr: 绑定地址（默认 0.0.0.0）
+    """
+
+    name = "standalone"
+
+    def __init__(self, config: Optional[Dict[str, Any]] = None) -> None:
+        config = config or {}
+        self._port = config.get("port", 80)
+        self._bind_addr = config.get("bind_addr", "0.0.0.0")
+        self._server: Any = None
+        self._resources: set = set()
+
+    def setup_challenge(
+        self, domain: str, token: str, key_authorization: str
+    ) -> None:
+        """准备验证资源（不启动服务器，start_server 时启动）。"""
+        # 资源会在 _start_http01_server 中使用
+        logger.info(
+            "HTTP-01 standalone 验证准备: 域名=%s, 端口=%d",
+            domain,
+            self._port,
+        )
+
+    def cleanup_challenge(
+        self, domain: str, token: str, key_authorization: str
+    ) -> None:
+        """停止服务器。"""
+        self._stop_server()
+
+    def start_server(self, resources: set) -> None:
+        """启动 HTTP-01 服务器。
+
+        Args:
+            resources: HTTP01RequestHandler.HTTP01Resource 集合
+        """
+        if not _HAS_ACME:
+            raise RuntimeError("缺少 acme 库依赖")
+
+        from acme import standalone as acme_standalone
+
+        self._resources = resources
+        logger.info("启动 HTTP-01 服务器: %s:%d", self._bind_addr, self._port)
+        try:
+            self._server = acme_standalone.HTTP01Server(
+                (self._bind_addr, self._port), resources
+            )
+        except OSError as e:
+            if "bind" in str(e).lower() or "10048" in str(e) or "98" in str(e):
+                raise RuntimeError(
+                    f"无法绑定端口 {self._port}，请确保该端口未被占用。\n"
+                    f"错误详情: {e}"
+                ) from e
+            raise
+
+    def _stop_server(self) -> None:
+        """停止 HTTP-01 服务器。"""
+        if self._server is not None:
+            logger.info("停止 HTTP-01 服务器")
+            self._server.shutdown()
+            self._server = None
+
+
+# ============================================================
+# HTTP-01 提供商工厂
+# ============================================================
+
+_HTTP01_PROVIDER_MAP: Dict[str, type[HTTP01Provider]] = {
+    "webroot": WebrootProvider,
+    "standalone": StandaloneProvider,
+}
+
+
+def get_http01_provider(
+    name: str, config: Optional[Dict[str, Any]] = None
+) -> HTTP01Provider:
+    """根据名称获取 HTTP-01 验证提供商实例。"""
+    cls = _HTTP01_PROVIDER_MAP.get(name.lower())
+    if cls is None:
+        raise ValueError(
+            f"不支持的 HTTP-01 提供商: {name}。"
+            f"支持的: {list(_HTTP01_PROVIDER_MAP.keys())}"
+        )
+    return cls(config)
+
+
+# ============================================================
 # 密钥和 CSR 生成
 # ============================================================
 
@@ -609,21 +817,25 @@ class ACMEClient:
     def obtain_certificate(
         self,
         domains: List[str],
-        dns_provider: DNSProvider,
         cert_key_path: Path,
+        challenge_type: str = "dns-01",
+        dns_provider: Optional[DNSProvider] = None,
+        http01_provider: Optional[HTTP01Provider] = None,
     ) -> Dict[str, bytes]:
         """获取证书。
 
         完整的 ACME v2 证书获取流程：
         1. 生成证书私钥和 CSR
         2. 创建订单（newOrder）
-        3. 对每个授权完成 DNS-01 验证
+        3. 对每个授权完成验证（DNS-01 或 HTTP-01）
         4. 完成订单并下载证书
 
         Args:
             domains: 要包含在证书中的域名列表
-            dns_provider: DNS-01 验证提供商
             cert_key_path: 证书私钥保存路径
+            challenge_type: 验证方式 ("dns-01" 或 "http-01")
+            dns_provider: DNS-01 验证提供商（challenge_type 为 dns-01 时必填）
+            http01_provider: HTTP-01 验证提供商（challenge_type 为 http-01 时必填）
 
         Returns:
             包含以下键的字典：
@@ -631,7 +843,24 @@ class ACMEClient:
                 - chain_pem: 中间证书链（PEM 格式）
                 - fullchain_pem: 完整证书链（服务器 + 中间证书）
                 - cert_key_pem: 证书私钥（PEM 格式）
+
+        Raises:
+            ValueError: 验证方式不支持或对应提供商缺失
+            RuntimeError: 验证失败
         """
+        # 验证参数
+        if challenge_type == "dns-01":
+            if dns_provider is None:
+                raise ValueError("DNS-01 验证方式需要提供 dns_provider")
+        elif challenge_type == "http-01":
+            if http01_provider is None:
+                raise ValueError("HTTP-01 验证方式需要提供 http01_provider")
+        else:
+            raise ValueError(
+                f"不支持的验证方式: {challenge_type}。"
+                f"支持: dns-01, http-01"
+            )
+
         # 步骤 1: 生成证书私钥
         cert_key = _generate_cert_key()
         _save_pem_key(cert_key, cert_key_path)
@@ -649,92 +878,41 @@ class ACMEClient:
         order = self.client.new_order(csr_pem)
         logger.info("订单已创建: %s", order.uri)
 
-        # 步骤 4: 对每个授权完成 DNS-01 验证
-        for authz in order.authorizations:
-            domain = authz.body.identifier.value
-            logger.info("处理域名授权: %s", domain)
-
-            # 获取 DNS-01 挑战
-            dns_challenge = authz.body.dns_challenge()
-
-            # 计算验证值
-            key_auth = dns_challenge.key_authorization
-            validation = _compute_dns01_validation(key_auth)
-
-            # DNS-01 要求记录名为 _acme-challenge.<domain>
-            # 泛域名 *.example.com 的记录名也是 _acme-challenge.example.com（去掉 *.）
-            clean_domain = domain.lstrip("*.")
-            record_name = f"_acme-challenge.{clean_domain}"
-
-            logger.info("DNS-01 挑战: 域名=%s, 记录=%s", domain, record_name)
-
-            # 添加 DNS TXT 记录
-            try:
-                dns_provider.add_txt_record(clean_domain, record_name, validation)
-            except Exception as e:
-                logger.error("添加 DNS TXT 记录失败: %s", e)
-                raise
-
-            # 等待 DNS 传播
-            logger.info("等待 DNS 传播 (%d 秒)...", DNS_PROPAGATION_WAIT)
-            time.sleep(DNS_PROPAGATION_WAIT)
-
-            # 可选：验证 DNS 记录已生效
-            if _wait_for_dns_propagation(record_name, validation):
-                logger.info("DNS 记录已确认生效")
-            else:
-                logger.warning("DNS 记录可能尚未完全传播，继续尝试验证...")
-
-            # 通知 ACME 服务器验证挑战
-            response = dns_challenge.response(self.account_jwk)
-            self.client.answer_challenge(dns_challenge, response)
-            logger.info("已提交 DNS-01 挑战响应")
-
-            # 轮询等待验证完成
-            validated = False
-            for attempt in range(1, CHALLENGE_POLL_MAX + 1):
-                updated_authz, _ = self.client.poll(authz)
-                status = updated_authz.body.status
-                logger.info(
-                    "  域名 %s 验证状态: %s (尝试 %d/%d)",
-                    domain,
-                    status,
-                    attempt,
-                    CHALLENGE_POLL_MAX,
-                )
-
-                if status == "valid":
-                    validated = True
-                    break
-                elif status == "invalid":
-                    # 获取错误详情
-                    for chall in updated_authz.body.challenges:
-                        if chall.error:
-                            logger.error("  验证失败详情: %s", chall.error)
-                    raise RuntimeError(f"DNS-01 验证失败: {domain}")
-                elif status == "pending":
-                    time.sleep(CHALLENGE_POLL_INTERVAL)
-                else:
-                    raise RuntimeError(f"未知的验证状态: {status}")
-
-            if not validated:
-                raise RuntimeError(f"DNS-01 验证超时: {domain}")
-
-            # 清理 DNS 记录
-            try:
-                dns_provider.del_txt_record(clean_domain, record_name, validation)
-            except Exception as e:
-                logger.warning("DNS 记录清理失败: %s", e)
-
-        # 步骤 5: 完成订单，获取证书
-        logger.info("所有域名验证通过，正在完成订单...")
-        deadline = datetime.now(timezone.utc) + timedelta(seconds=90)
+        # 用于追踪需要清理的资源
+        cleanup_tasks: List[Dict[str, Any]] = []
 
         try:
-            finalized_order = self.client.finalize_order(order, deadline)
-        except Exception as e:
-            logger.error("订单完成失败: %s", e)
-            raise
+            # 步骤 4: 对每个授权完成验证
+            for authz in order.authorizations:
+                domain = authz.body.identifier.value
+                logger.info(
+                    "处理域名授权: %s (验证方式: %s)", domain, challenge_type
+                )
+
+                if challenge_type == "dns-01":
+                    assert dns_provider is not None
+                    self._fulfill_dns01_challenge(
+                        authz, domain, dns_provider
+                    )
+                elif challenge_type == "http-01":
+                    assert http01_provider is not None
+                    self._fulfill_http01_challenge(
+                        authz, domain, http01_provider, cleanup_tasks
+                    )
+
+            # 步骤 5: 完成订单，获取证书
+            logger.info("所有域名验证通过，正在完成订单...")
+            deadline = datetime.now(timezone.utc) + timedelta(seconds=90)
+
+            try:
+                finalized_order = self.client.finalize_order(order, deadline)
+            except Exception as e:
+                logger.error("订单完成失败: %s", e)
+                raise
+
+        finally:
+            # 清理验证资源
+            self._cleanup_challenges(challenge_type, cleanup_tasks, dns_provider)
 
         # 提取证书数据
         fullchain_pem = finalized_order.fullchain_pem.encode("utf-8")
@@ -759,6 +937,213 @@ class ACMEClient:
             "fullchain_pem": fullchain_pem,
             "cert_key_pem": cert_key_pem,
         }
+
+    def _fulfill_dns01_challenge(
+        self,
+        authz: Any,
+        domain: str,
+        dns_provider: DNSProvider,
+    ) -> None:
+        """完成 DNS-01 验证。
+
+        Args:
+            authz: ACME 授权对象
+            domain: 待验证域名
+            dns_provider: DNS 提供商实例
+        """
+        # 从授权的挑战列表中找到 DNS-01 挑战
+        dns_challenge = None
+        for chall_body in authz.body.challenges:
+            if isinstance(chall_body.chall, acme_challenges.DNS01):
+                dns_challenge = chall_body
+                break
+
+        if dns_challenge is None:
+            raise RuntimeError(
+                f"域名 {domain} 的授权不包含 DNS-01 挑战。"
+                f"可用挑战类型: {[cb.chall.typ for cb in authz.body.challenges]}"
+            )
+
+        # 计算验证值
+        key_auth = dns_challenge.chall.key_authorization(self.account_jwk)
+        validation = _compute_dns01_validation(key_auth)
+
+        # DNS-01 要求记录名为 _acme-challenge.<domain>
+        # 泛域名 *.example.com 的记录名也是 _acme-challenge.example.com（去掉 *.）
+        clean_domain = domain.lstrip("*.")
+        record_name = f"_acme-challenge.{clean_domain}"
+
+        logger.info("DNS-01 挑战: 域名=%s, 记录=%s", domain, record_name)
+
+        # 添加 DNS TXT 记录
+        try:
+            dns_provider.add_txt_record(clean_domain, record_name, validation)
+        except Exception as e:
+            logger.error("添加 DNS TXT 记录失败: %s", e)
+            raise
+
+        # 等待 DNS 传播
+        logger.info("等待 DNS 传播 (%d 秒)...", DNS_PROPAGATION_WAIT)
+        time.sleep(DNS_PROPAGATION_WAIT)
+
+        # 可选：验证 DNS 记录已生效
+        if _wait_for_dns_propagation(record_name, validation):
+            logger.info("DNS 记录已确认生效")
+        else:
+            logger.warning("DNS 记录可能尚未完全传播，继续尝试验证...")
+
+        # 通知 ACME 服务器验证挑战
+        response = dns_challenge.chall.response(self.account_jwk)
+        self.client.answer_challenge(dns_challenge, response)
+        logger.info("已提交 DNS-01 挑战响应")
+
+        # 轮询等待验证完成
+        self._poll_authorization(authz, domain, "DNS-01")
+
+        # 清理 DNS 记录
+        try:
+            dns_provider.del_txt_record(clean_domain, record_name, validation)
+        except Exception as e:
+            logger.warning("DNS 记录清理失败: %s", e)
+
+    def _fulfill_http01_challenge(
+        self,
+        authz: Any,
+        domain: str,
+        http01_provider: HTTP01Provider,
+        cleanup_tasks: List[Dict[str, Any]],
+    ) -> None:
+        """完成 HTTP-01 验证。
+
+        Args:
+            authz: ACME 授权对象
+            domain: 待验证域名
+            http01_provider: HTTP-01 提供商实例
+            cleanup_tasks: 清理任务列表（用于 finally 清理）
+        """
+        # 从授权的挑战列表中找到 HTTP-01 挑战
+        http_challenge = None
+        for chall_body in authz.body.challenges:
+            if isinstance(chall_body.chall, acme_challenges.HTTP01):
+                http_challenge = chall_body
+                break
+
+        if http_challenge is None:
+            raise RuntimeError(
+                f"域名 {domain} 的授权不包含 HTTP-01 挑战。"
+                f"可用挑战类型: {[cb.chall.typ for cb in authz.body.challenges]}"
+            )
+
+        # 计算 key authorization（HTTP-01 直接使用，不做哈希）
+        key_auth = http_challenge.chall.key_authorization(self.account_jwk)
+        token = http_challenge.chall.encode("token")
+
+        logger.info(
+            "HTTP-01 挑战: 域名=%s, 路径=/.well-known/acme-challenge/%s",
+            domain,
+            token,
+        )
+
+        # 设置验证资源
+        if isinstance(http01_provider, StandaloneProvider):
+            # Standalone 模式：启动临时 HTTP 服务器
+            from acme import standalone as acme_standalone
+
+            response, validation = http_challenge.chall.response_and_validation(
+                self.account_jwk
+            )
+            resource = acme_standalone.HTTP01RequestHandler.HTTP01Resource(
+                chall=http_challenge.chall,
+                response=response,
+                validation=validation,
+            )
+            http01_provider.start_server({resource})
+            logger.info("HTTP-01 standalone 服务器已启动")
+        else:
+            # Webroot 模式：写入验证文件
+            http01_provider.setup_challenge(domain, token, key_auth)
+
+        # 记录清理任务
+        cleanup_tasks.append({
+            "type": "http-01",
+            "domain": domain,
+            "token": token,
+            "key_auth": key_auth,
+            "provider": http01_provider,
+        })
+
+        # 通知 ACME 服务器验证挑战
+        response = http_challenge.chall.response(self.account_jwk)
+        self.client.answer_challenge(http_challenge, response)
+        logger.info("已提交 HTTP-01 挑战响应")
+
+        # 轮询等待验证完成
+        self._poll_authorization(authz, domain, "HTTP-01")
+
+        # 清理验证资源
+        try:
+            http01_provider.cleanup_challenge(domain, token, key_auth)
+        except Exception as e:
+            logger.warning("HTTP-01 资源清理失败: %s", e)
+
+    def _poll_authorization(
+        self, authz: Any, domain: str, challenge_label: str
+    ) -> None:
+        """轮询等待 ACME 授权验证完成。
+
+        Args:
+            authz: ACME 授权对象
+            domain: 域名
+            challenge_label: 挑战类型标签（用于日志）
+        """
+        validated = False
+        for attempt in range(1, CHALLENGE_POLL_MAX + 1):
+            updated_authz, _ = self.client.poll(authz)
+            status = updated_authz.body.status
+            logger.info(
+                "  域名 %s 验证状态: %s (尝试 %d/%d)",
+                domain,
+                status,
+                attempt,
+                CHALLENGE_POLL_MAX,
+            )
+
+            if status == "valid":
+                validated = True
+                break
+            elif status == "invalid":
+                # 获取错误详情
+                for chall in updated_authz.body.challenges:
+                    if chall.error:
+                        logger.error("  验证失败详情: %s", chall.error)
+                raise RuntimeError(f"{challenge_label} 验证失败: {domain}")
+            elif status == "pending":
+                time.sleep(CHALLENGE_POLL_INTERVAL)
+            else:
+                raise RuntimeError(f"未知的验证状态: {status}")
+
+        if not validated:
+            raise RuntimeError(f"{challenge_label} 验证超时: {domain}")
+
+    def _cleanup_challenges(
+        self,
+        challenge_type: str,
+        cleanup_tasks: List[Dict[str, Any]],
+        dns_provider: Optional[DNSProvider] = None,
+    ) -> None:
+        """清理验证资源（失败时的安全网）。
+
+        在异常发生时确保资源被清理。
+        """
+        for task in cleanup_tasks:
+            try:
+                if task["type"] == "http-01":
+                    provider = task["provider"]
+                    provider.cleanup_challenge(
+                        task["domain"], task["token"], task["key_auth"]
+                    )
+            except Exception as e:
+                logger.warning("资源清理失败: %s", e)
 
 
 # ============================================================
@@ -793,23 +1178,31 @@ def obtain_cert(
     staging: bool = True,
     email: str = DEFAULT_EMAIL,
     key_size: int = 2048,
+    challenge_type: str = "dns-01",
 ) -> None:
     """从 Let's Encrypt 获取证书。
 
     这是 CLI 调用的主要入口函数。执行完整的 ACME v2 流程：
-    账户注册 → 订单创建 → DNS-01 验证 → 证书签发 → 保存输出。
+    账户注册 → 订单创建 → 验证（DNS-01 或 HTTP-01） → 证书签发 → 保存输出。
 
     Args:
         out_dir: 证书输出目录
         domains: 域名列表，支持泛域名
             示例: ["example.com", "*.example.com", "www.example.com"]
-        provider: DNS 提供商名称 ("manual", "cloudflare", "aliyun")
+        provider: 验证提供商名称
+            DNS-01: "manual", "cloudflare", "aliyun"
+            HTTP-01: "webroot", "standalone"
         provider_config: 提供商配置字典
-            - cloudflare: {"api_token": "...", "zone_id": "..."}
-            - aliyun: {"access_key_id": "...", "access_key_secret": "..."}
+            DNS-01 (cloudflare): {"api_token": "...", "zone_id": "..."}
+            DNS-01 (aliyun): {"access_key_id": "...", "access_key_secret": "..."}
+            HTTP-01 (webroot): {"webroot": "/var/www/html"}
+            HTTP-01 (standalone): {"port": 80, "bind_addr": "0.0.0.0"}
         staging: 是否使用测试服务器（默认 True，避免触及生产环境速率限制）
         email: 联系邮箱，用于接收证书到期通知
         key_size: RSA 密钥长度（2048 或 4096）
+        challenge_type: 验证方式
+            "dns-01": DNS 验证，支持泛域名（默认）
+            "http-01": HTTP 验证，适用于普通二级域名，无需 DNS 操作
 
     输出文件结构:
         out_dir/
@@ -822,6 +1215,9 @@ def obtain_cert(
             ├── <domain>.bundle.crt  # 完整证书链（服务器 + 中间 + 根）
             ├── <domain>.fullchain.crt  # 服务器 + 中间（用于 nginx ssl_certificate）
             └── <domain>.key.pem     # 证书私钥
+
+    Raises:
+        ValueError: 验证方式不支持或泛域名使用了 HTTP-01
     """
     if not _HAS_ACME:
         print("错误: 缺少 acme 库依赖。请运行以下命令安装:")
@@ -829,6 +1225,15 @@ def obtain_cert(
         print()
         print("或者使用自签证书模块: zxtool --ssl --domain example.dev")
         return
+
+    # 泛域名只能使用 DNS-01 验证
+    has_wildcard = any(d.startswith("*.") for d in domains)
+    if has_wildcard and challenge_type == "http-01":
+        raise ValueError(
+            "泛域名证书只能使用 DNS-01 验证方式。"
+            f"以下域名包含通配符: {[d for d in domains if d.startswith('*.')]}\n"
+            "请使用 --challenge dns-01 替代。"
+        )
 
     out_dir = Path(out_dir).resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -841,19 +1246,31 @@ def obtain_cert(
 
     directory_url = STAGING_URL if staging else PRODUCTION_URL
     env_label = "测试环境 (staging)" if staging else "生产环境 (production)"
+    challenge_label = "DNS-01" if challenge_type == "dns-01" else "HTTP-01"
 
     print()
     print("=" * 60)
     print(f"  Let's Encrypt 证书签发")
     print(f"  环境: {env_label}")
     print(f"  域名: {', '.join(domains)}")
-    print(f"  DNS 提供商: {provider}")
+    print(f"  验证方式: {challenge_label}")
+    print(f"  提供商: {provider}")
     print(f"  输出目录: {cert_dir}")
     print("=" * 60)
     print()
 
-    # 获取 DNS 提供商
-    dns_provider = get_provider(provider, provider_config)
+    # 根据验证方式获取提供商
+    dns_provider: Optional[DNSProvider] = None
+    http01_provider: Optional[HTTP01Provider] = None
+
+    if challenge_type == "dns-01":
+        dns_provider = get_provider(provider, provider_config)
+    elif challenge_type == "http-01":
+        http01_provider = get_http01_provider(provider, provider_config)
+    else:
+        raise ValueError(
+            f"不支持的验证方式: {challenge_type}。支持: dns-01, http-01"
+        )
 
     # 创建 ACME 客户端
     account_key_path = out_dir / "account.key"
@@ -864,10 +1281,16 @@ def obtain_cert(
     client.setup_account(email)
 
     # 获取证书
-    print("步骤 2/4: 创建订单并提交 CSR...")
-    print("步骤 3/4: 完成 DNS-01 验证...")
+    print(f"步骤 2/4: 创建订单并提交 CSR...")
+    print(f"步骤 3/4: 完成 {challenge_label} 验证...")
     cert_key_path = cert_dir / f"{primary}.key.pem"
-    result = client.obtain_certificate(domains, dns_provider, cert_key_path)
+    result = client.obtain_certificate(
+        domains=domains,
+        cert_key_path=cert_key_path,
+        challenge_type=challenge_type,
+        dns_provider=dns_provider,
+        http01_provider=http01_provider,
+    )
 
     # 保存证书文件
     print("步骤 4/4: 保存证书文件...")
@@ -883,7 +1306,7 @@ def obtain_cert(
     fullchain_path.write_bytes(result["fullchain_pem"])
 
     # 更新续签状态
-    _update_renew_state(out_dir, primary, domains, provider, staging)
+    _update_renew_state(out_dir, primary, domains, provider, staging, challenge_type=challenge_type)
 
     # 输出结果
     print()
@@ -932,7 +1355,7 @@ def renew_certs(
     state_path = out_dir / "renew_state.json"
 
     if not state_path.exists():
-        print("续签状态文件不存在: {state_path}")
+        print(f"续签状态文件不存在: {state_path}")
         print("请先使用 obtain_cert 获取证书。")
         return
 
@@ -1124,6 +1547,7 @@ def _update_renew_state(
     domains: List[str],
     provider: str,
     staging: bool,
+    challenge_type: str = "dns-01",
 ) -> None:
     """更新续签状态文件。
 
@@ -1149,6 +1573,7 @@ def _update_renew_state(
         "expires_at": expires_at.isoformat(),
         "provider": provider,
         "staging": staging,
+        "challenge_type": challenge_type,
     }
 
     state_path.write_text(json.dumps(state, indent=2, ensure_ascii=False))
@@ -1216,10 +1641,19 @@ def batch_obtain_certs(
         out_dir = Path(le_config["output_dir"]).resolve()
         staging = le_config.get("staging", True)
         email = le_config.get("email", "")
+        challenge_type = le_config.get("challenge_type", "dns-01")
+        # 泛域名强制使用 DNS-01
+        if domain.startswith("*.") and challenge_type == "http-01":
+            challenge_type = "dns-01"
+            logger.info("泛域名 %s 强制使用 DNS-01 验证", domain)
+
+        # 根据验证方式选择提供商名称标签
+        challenge_label = "DNS-01" if challenge_type == "dns-01" else "HTTP-01"
 
         print(f"--- [{i}/{len(projects)}] {domain} ---")
         print(f"  域名列表: {domain_list}")
-        print(f"  DNS 提供商: {provider}")
+        print(f"  验证方式: {challenge_label}")
+        print(f"  提供商: {provider}")
         print(f"  输出目录: {out_dir}")
         print(f"  环境: {'测试' if staging else '生产'}")
         if email:
@@ -1239,6 +1673,7 @@ def batch_obtain_certs(
                 provider_config=provider_config if provider_config else None,
                 staging=staging,
                 email=email,
+                challenge_type=challenge_type,
             )
             results[domain] = True
         except Exception as e:
@@ -1291,6 +1726,7 @@ def batch_renew_certs(
     provider_config = le_config.get("provider_config", {})
     staging = le_config.get("staging", True)
     email = le_config.get("email", "")
+    challenge_type = le_config.get("challenge_type", "dns-01")
 
     projects = load_projects_with_domain(config_path)
 
@@ -1357,6 +1793,11 @@ def batch_renew_certs(
             results[domain] = True
             continue
 
+        # 泛域名强制使用 DNS-01
+        domain_challenge = challenge_type
+        if domain.startswith("*.") and domain_challenge == "http-01":
+            domain_challenge = "dns-01"
+
         try:
             obtain_cert(
                 out_dir=out_dir,
@@ -1365,6 +1806,7 @@ def batch_renew_certs(
                 provider_config=provider_config if provider_config else None,
                 staging=staging,
                 email=email,
+                challenge_type=domain_challenge,
             )
             results[domain] = True
         except Exception as e:
@@ -1424,6 +1866,19 @@ def main() -> None:
     --provider-config '{"access_key_id":"xxx","access_key_secret":"yyy"}' \\
     --production
 
+  # HTTP-01 验证签发证书（webroot 方式）
+  zxtool --le issue -d example.com \\
+    --challenge http-01 \\
+    --provider webroot \\
+    --provider-config '{"webroot":"/var/www/html"}' \\
+    --production
+
+  # HTTP-01 验证签发证书（standalone 方式，需要 80 端口）
+  zxtool --le issue -d example.com \\
+    --challenge http-01 \\
+    --provider standalone \\
+    --production
+
   # 查看证书状态
   zxtool --le status
 
@@ -1453,10 +1908,16 @@ def main() -> None:
         "-d", "--domain", nargs="+", required=True, help="域名列表"
     )
     issue_parser.add_argument(
-        "--provider", default="manual", help="DNS 提供商 (manual/cloudflare/aliyun)"
+        "--provider", default="manual", help="验证提供商 (DNS-01: manual/cloudflare/aliyun; HTTP-01: webroot/standalone)"
     )
     issue_parser.add_argument(
         "--provider-config", type=str, default=None, help="提供商配置 (JSON 字符串)"
+    )
+    issue_parser.add_argument(
+        "--challenge",
+        default="dns-01",
+        choices=["dns-01", "http-01"],
+        help="验证方式 (dns-01: 支持*泛域名, 需要 DNS 操作; http-01: 仅普通域名, 无需 DNS 操作, 默认 dns-01)",
     )
     issue_parser.add_argument(
         "--production", action="store_true", help="使用生产环境（默认测试环境）"
@@ -1515,6 +1976,7 @@ def main() -> None:
     if args.command == "init":
         init(out_dir)
     elif args.command == "issue":
+        challenge_type = getattr(args, "challenge", "dns-01")
         obtain_cert(
             out_dir=out_dir,
             domains=args.domain,
@@ -1523,6 +1985,7 @@ def main() -> None:
             staging=not args.production,
             email=args.email,
             key_size=args.key_size,
+            challenge_type=challenge_type,
         )
     elif args.command == "renew":
         renew_certs(

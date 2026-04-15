@@ -276,10 +276,16 @@ def main():
         "-d", "--domain", nargs="+", required=True, help="域名列表"
     )
     le_issue_parser.add_argument(
-        "--provider", default="manual", help="DNS 提供商 (manual/cloudflare/aliyun)"
+        "--provider", default="manual", help="验证提供商 (DNS-01: manual/cloudflare/aliyun; HTTP-01: webroot/standalone)"
     )
     le_issue_parser.add_argument(
         "--provider-config", type=str, default=None, help="提供商配置 (JSON 字符串)"
+    )
+    le_issue_parser.add_argument(
+        "--challenge",
+        default="dns-01",
+        choices=["dns-01", "http-01"],
+        help="验证方式 (dns-01: 支持泛域名, 需 DNS 操作; http-01: 仅普通域名, 无需 DNS 操作, 默认 dns-01)",
     )
     le_issue_parser.add_argument(
         "--production", action="store_true", help="使用生产环境（默认测试环境）"
@@ -479,12 +485,27 @@ def main():
                     remote=args.remote,
                     branch=args.branch,
                 )
-            else:
+            elif args.project_dir:
                 gc.git_pull(
                     project_dir=args.project_dir,
                     remote=args.remote,
                     branch=args.branch,
                 )
+            else:
+                # No --name and no project_dir: check if cwd has .git
+                if gc.find_git_dir():
+                    gc.git_pull(
+                        project_dir=None,
+                        remote=args.remote,
+                        branch=args.branch,
+                    )
+                else:
+                    # No .git in cwd, batch pull/clone all projects from config
+                    gc.git_pull_all_projects(
+                        config_path=args.config,
+                        remote=args.remote,
+                        branch=args.branch,
+                    )
         else:
             git_parser.print_help()
         return
@@ -503,13 +524,19 @@ def main():
                 print(f"错误: --provider-config 必须是有效的 JSON: {e}")
                 return
 
-        out_dir = (
-            Path(args.output).resolve()
-            if getattr(args, "output", None)
-            else Path("out_le").resolve()
-        )
+        # 未指定 --output 时，从 zxtool.toml 配置文件读取默认输出目录
+        if getattr(args, "output", None):
+            out_dir = Path(args.output).resolve()
+        else:
+            try:
+                le_config = cm.load_le_config()
+                default_out = le_config.get("output_dir", "out_le")
+            except FileNotFoundError:
+                default_out = "out_le"
+            out_dir = Path(default_out).resolve()
 
         if le_cmd == "issue":
+            challenge_type = getattr(args, "challenge", "dns-01")
             le.obtain_cert(
                 out_dir=out_dir,
                 domains=args.domain,
@@ -518,6 +545,7 @@ def main():
                 staging=not args.production,
                 email=args.email,
                 key_size=args.key_size,
+                challenge_type=challenge_type,
             )
         elif le_cmd == "renew":
             le.renew_certs(

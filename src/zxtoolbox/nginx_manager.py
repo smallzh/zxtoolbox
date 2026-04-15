@@ -27,8 +27,8 @@ NGINX_SITE_TEMPLATE = """\
 
 # HTTP -> HTTPS 重定向
 server {{
-    listen 80;
-    listen [::]:80;
+    listen {http_port};
+    listen [::]:{http_port};
     server_name {server_name};
 
     # Let's Encrypt ACME 验证路径
@@ -43,8 +43,8 @@ server {{
 
 # HTTPS 站点
 server {{
-    listen 443 ssl http2;
-    listen [::]:443 ssl http2;
+    listen {https_port} ssl http2;
+    listen [::]:{https_port} ssl http2;
     server_name {server_name};
 
     # SSL 证书路径
@@ -97,8 +97,8 @@ NGINX_HTTP_ONLY_TEMPLATE = """\
 # 站点: {server_name}
 
 server {{
-    listen 80;
-    listen [::]:80;
+    listen {http_port};
+    listen [::]:{http_port};
     server_name {server_name};
 
     # 站点根目录
@@ -325,6 +325,8 @@ def generate_site_config(
     ssl_certificate_key: str | None = None,
     server_name: str | None = None,
     webroot: str | None = None,
+    http_port: int = 80,
+    https_port: int = 443,
 ) -> str:
     """生成单个站点的 Nginx 配置。
 
@@ -335,6 +337,8 @@ def generate_site_config(
         ssl_certificate_key: SSL 私钥路径
         server_name: Nginx server_name 指令值，默认与 domain 相同
         webroot: ACME 验证目录，默认与 root 相同
+        http_port: HTTP 监听端口（默认 80）
+        https_port: HTTPS 监听端口（默认 443）
 
     Returns:
         生成的 Nginx 配置内容
@@ -351,12 +355,15 @@ def generate_site_config(
             ssl_certificate=ssl_certificate,
             ssl_certificate_key=ssl_certificate_key,
             webroot=webroot,
+            http_port=http_port,
+            https_port=https_port,
         )
     else:
         return NGINX_HTTP_ONLY_TEMPLATE.format(
             server_name=server_name,
             root=root,
             webroot=webroot,
+            http_port=http_port,
         )
 
 
@@ -444,6 +451,11 @@ def generate_from_config(
         "provider_config": le_section.get("provider_config", {}),
     }
 
+    # 读取 Nginx 全局端口配置
+    nginx_section = data.get("nginx", {})
+    default_http_port = nginx_section.get("http_port", 80)
+    default_https_port = nginx_section.get("https_port", 443)
+
     # 筛选配置了 domain 的项目
     domain_projects = [p for p in projects if p.get("domain")]
 
@@ -455,7 +467,8 @@ def generate_from_config(
         return {}
 
     print(f"加载配置文件: {config_path}")
-    print(f"共 {len(domain_projects)} 个域名待生成配置\n")
+    print(f"共 {len(domain_projects)} 个域名待生成配置")
+    print(f"HTTP 端口: {default_http_port}, HTTPS 端口: {default_https_port}\n")
 
     if dry_run:
         print("=== 生成计划（dry-run）===")
@@ -501,6 +514,10 @@ def generate_from_config(
         else:
             print(f"  [WARN] 未找到 SSL 证书，将生成仅 HTTP 配置")
 
+        # 确定端口（项目级别覆盖全局默认值）
+        http_port = proj.get("listen_port", default_http_port)
+        https_port = default_https_port
+
         # 生成配置
         config_content = generate_site_config(
             domain=domain,
@@ -508,6 +525,8 @@ def generate_from_config(
             ssl_certificate=ssl_cert,
             ssl_certificate_key=ssl_key,
             webroot=root,
+            http_port=http_port,
+            https_port=https_port,
         )
 
         # 写入文件

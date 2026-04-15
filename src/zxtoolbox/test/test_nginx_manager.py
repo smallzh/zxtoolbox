@@ -59,6 +59,22 @@ class TestGenerateSiteConfig:
         assert "return 301 https://$host$request_uri" in config
         assert "Strict-Transport-Security" in config
 
+    def test_generate_https_config_custom_ports(self):
+        """Test generating HTTPS config with custom ports."""
+        config = generate_site_config(
+            domain="example.com",
+            root="/var/www/example",
+            ssl_certificate="/etc/letsencrypt/live/example.com/fullchain.pem",
+            ssl_certificate_key="/etc/letsencrypt/live/example.com/privkey.pem",
+            http_port=8080,
+            https_port=8443,
+        )
+
+        assert "listen 8080" in config
+        assert "listen [::]:8080" in config
+        assert "listen 8443 ssl http2" in config
+        assert "listen [::]:8443 ssl http2" in config
+
     def test_generate_http_only_config(self):
         """Test generating HTTP-only config without SSL."""
         config = generate_site_config(
@@ -71,6 +87,18 @@ class TestGenerateSiteConfig:
         assert "listen 443" not in config
         assert "root /var/www/example" in config
         assert "ssl_certificate" not in config
+
+    def test_generate_http_only_config_custom_port(self):
+        """Test generating HTTP-only config with custom port."""
+        config = generate_site_config(
+            domain="example.com",
+            root="/var/www/example",
+            http_port=8080,
+        )
+
+        assert "listen 8080" in config
+        assert "listen [::]:8080" in config
+        assert "listen 80;" not in config  # Should not have default port 80
 
     def test_generate_with_custom_server_name(self):
         """Test generating config with custom server_name."""
@@ -435,3 +463,76 @@ class TestGenerateFromConfig:
         )
 
         mock_write.assert_not_called()
+
+    @patch("zxtoolbox.nginx_manager.write_site_config")
+    @patch("zxtoolbox.nginx_manager.load_config")
+    def test_generate_with_nginx_ports(self, mock_load, mock_write, tmp_path):
+        """Test generating configs with nginx port config."""
+        mock_load.return_value = {
+            "letsencrypt": {
+                "provider": "manual",
+                "output_dir": "out_le",
+            },
+            "nginx": {
+                "http_port": 8080,
+                "https_port": 8443,
+            },
+            "projects": [
+                {
+                    "project_dir": "/path/to/project",
+                    "domain": "example.com",
+                    "output_dir": "/var/www/example",
+                },
+            ],
+        }
+        mock_write.return_value = Path("/etc/nginx/sites-available/example.com.conf")
+
+        config_file = tmp_path / "zxtool.toml"
+        config_file.write_text("", encoding="utf-8")
+
+        result = generate_from_config(
+            config_path=str(config_file),
+            output_dir=str(tmp_path / "nginx"),
+        )
+
+        assert "example.com" in result
+        # Verify the generated config uses the custom ports
+        config_content = result["example.com"]
+        assert "listen 8080" in config_content
+
+    @patch("zxtoolbox.nginx_manager.write_site_config")
+    @patch("zxtoolbox.nginx_manager.load_config")
+    def test_generate_with_project_listen_port(self, mock_load, mock_write, tmp_path):
+        """Test generating configs with per-project listen_port overriding global port."""
+        mock_load.return_value = {
+            "letsencrypt": {
+                "provider": "manual",
+                "output_dir": "out_le",
+            },
+            "nginx": {
+                "http_port": 80,
+                "https_port": 443,
+            },
+            "projects": [
+                {
+                    "project_dir": "/path/to/project",
+                    "domain": "example.com",
+                    "output_dir": "/var/www/example",
+                    "listen_port": 9090,
+                },
+            ],
+        }
+        mock_write.return_value = Path("/etc/nginx/sites-available/example.com.conf")
+
+        config_file = tmp_path / "zxtool.toml"
+        config_file.write_text("", encoding="utf-8")
+
+        result = generate_from_config(
+            config_path=str(config_file),
+            output_dir=str(tmp_path / "nginx"),
+        )
+
+        assert "example.com" in result
+        # Verify the generated config uses the per-project listen_port
+        config_content = result["example.com"]
+        assert "listen 9090" in config_content

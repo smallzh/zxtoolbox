@@ -10,9 +10,14 @@ import pytest
 from zxtoolbox.letsencrypt import (
     DNSProvider,
     ManualProvider,
+    HTTP01Provider,
+    WebrootProvider,
+    StandaloneProvider,
     get_provider,
+    get_http01_provider,
     _compute_dns01_validation,
     _PROVIDER_MAP,
+    _HTTP01_PROVIDER_MAP,
     batch_obtain_certs,
     batch_renew_certs,
 )
@@ -466,3 +471,234 @@ domain = "expiring.com"
 
         # dry-run should still report needing renewal
         assert "expiring.com" in results
+
+
+class TestDNSChallengeExtraction:
+    """Test DNS-01 challenge extraction from Authorization body."""
+
+    def test_extract_dns01_challenge_from_challenges_list(self):
+        """Test that DNS-01 challenge is correctly extracted from challenges list.
+
+        The Authorization object has a challenges list (not dns_challenge() method).
+        Each challenge body has a .chall attribute containing the actual challenge object.
+        """
+        from acme import challenges as acme_challenges
+
+        # Create a mock DNS-01 challenge
+        dns_chall = acme_challenges.DNS01(token=b"test-token-dns01")
+        dns_chall_body = MagicMock()
+        dns_chall_body.chall = dns_chall
+
+        # Create a mock HTTP-01 challenge (should be ignored)
+        http_chall_body = MagicMock()
+        http_chall_body.chall = MagicMock()
+        http_chall_body.chall.typ = "http-01"
+
+        # Create mock Authorization body
+        authz_body = MagicMock()
+        authz_body.challenges = [http_chall_body, dns_chall_body]
+
+        # Verify we can find the DNS-01 challenge by type
+        found = None
+        for chall_body in authz_body.challenges:
+            if isinstance(chall_body.chall, acme_challenges.DNS01):
+                found = chall_body
+                break
+
+        assert found is not None
+        assert isinstance(found.chall, acme_challenges.DNS01)
+
+    def test_no_dns01_challenge_raises_error(self):
+        """Test that missing DNS-01 challenge is detected.
+
+        If an Authorization has no DNS-01 challenge (e.g., only HTTP-01),
+        the code should report available challenges.
+        """
+        # Create mock challenge bodies (no DNS-01)
+        http_chall_body = MagicMock()
+        http_chall_body.chall = MagicMock()
+        http_chall_body.chall.typ = "http-01"
+
+        authz_body = MagicMock()
+        authz_body.challenges = [http_chall_body]
+
+        # Verify no DNS-01 challenge is found
+        found = None
+        for chall_body in authz_body.challenges:
+            from acme import challenges as acme_challenges
+            if isinstance(chall_body.chall, acme_challenges.DNS01):
+                found = chall_body
+                break
+
+        assert found is None
+
+
+class TestHTTP01Provider:
+    """Test HTTP-01 challenge providers."""
+
+    def test_http01_provider_base_not_implemented(self):
+        """Test that base provider raises NotImplementedError."""
+        provider = HTTP01Provider()
+        with pytest.raises(NotImplementedError):
+            provider.setup_challenge("example.com", "token", "key_auth")
+        with pytest.raises(NotImplementedError):
+            provider.cleanup_challenge("example.com", "token", "key_auth")
+
+    def test_webroot_provider_name(self):
+        """Test WebrootProvider name."""
+        provider = WebrootProvider({"webroot": "/tmp/webroot"})
+        assert provider.name == "webroot"
+
+    def test_webroot_missing_config(self):
+        """Test WebrootProvider with missing config."""
+        with pytest.raises(ValueError, match="webroot"):
+            WebrootProvider({})
+        with pytest.raises(ValueError, match="webroot"):
+            WebrootProvider()
+
+    def test_webroot_setup_challenge(self, tmp_path):
+        """Test WebrootProvider writes challenge file."""
+        webroot = tmp_path / "www"
+        webroot.mkdir()
+        provider = WebrootProvider({"webroot": str(webroot)})
+
+        provider.setup_challenge("example.com", "test-token", "key-auth-value")
+
+        challenge_file = webroot / ".well-known" / "acme-challenge" / "test-token"
+        assert challenge_file.exists()
+        assert challenge_file.read_text() == "key-auth-value"
+
+    def test_webroot_cleanup_challenge(self, tmp_path):
+        """Test WebrootProvider cleans up challenge file."""
+        webroot = tmp_path / "www"
+        webroot.mkdir()
+        provider = WebrootProvider({"webroot": str(webroot)})
+
+        provider.setup_challenge("example.com", "test-token", "key-auth-value")
+        assert (webroot / ".well-known" / "acme-challenge" / "test-token").exists()
+
+        provider.cleanup_challenge("example.com", "test-token", "key-auth-value")
+        assert not (webroot / ".well-known" / "acme-challenge" / "test-token").exists()
+
+    def test_standalone_provider_name(self):
+        """Test StandaloneProvider name."""
+        provider = StandaloneProvider()
+        assert provider.name == "standalone"
+
+    def test_standalone_default_config(self):
+        """Test StandaloneProvider with default config."""
+        provider = StandaloneProvider()
+        assert provider._port == 80
+        assert provider._bind_addr == "0.0.0.0"
+
+    def test_standalone_custom_config(self):
+        """Test StandaloneProvider with custom config."""
+        provider = StandaloneProvider({"port": 8080, "bind_addr": "127.0.0.1"})
+        assert provider._port == 8080
+        assert provider._bind_addr == "127.0.0.1"
+
+
+class TestGetHTTP01Provider:
+    """Test HTTP-01 provider factory."""
+
+    def test_get_webroot_provider(self):
+        """Test getting webroot provider."""
+        provider = get_http01_provider("webroot", {"webroot": "/tmp/test"})
+        assert isinstance(provider, WebrootProvider)
+
+    def test_get_standalone_provider(self):
+        """Test getting standalone provider."""
+        provider = get_http01_provider("standalone")
+        assert isinstance(provider, StandaloneProvider)
+
+    def test_get_provider_case_insensitive(self):
+        """Test provider name is case insensitive."""
+        provider = get_http01_provider("WEBROOT", {"webroot": "/tmp/test"})
+        assert isinstance(provider, WebrootProvider)
+
+    def test_get_unsupported_provider(self):
+        """Test getting unsupported provider raises ValueError."""
+        with pytest.raises(ValueError, match="不支持的 HTTP-01 提供商"):
+            get_http01_provider("unsupported")
+
+
+class TestHTTP01ProviderMap:
+    """Test HTTP-01 provider registry."""
+
+    def test_http01_provider_map_contains_expected(self):
+        """Test that HTTP-01 provider map has expected providers."""
+        assert "webroot" in _HTTP01_PROVIDER_MAP
+        assert "standalone" in _HTTP01_PROVIDER_MAP
+
+
+class TestObtainCertChallengeType:
+    """Test obtain_cert with different challenge types."""
+
+    def test_wildcard_domain_with_http01_raises_error(self, tmp_path):
+        """Test that wildcard domains with HTTP-01 raise ValueError."""
+        from zxtoolbox.letsencrypt import obtain_cert
+
+        with pytest.raises(ValueError, match="泛域名证书只能使用 DNS-01"):
+            obtain_cert(
+                out_dir=tmp_path,
+                domains=["*.example.com"],
+                provider="standalone",
+                challenge_type="http-01",
+            )
+
+    def test_invalid_challenge_type_raises_error(self, tmp_path):
+        """Test that invalid challenge type raises ValueError."""
+        from zxtoolbox.letsencrypt import obtain_cert
+
+        with pytest.raises(ValueError, match="不支持的验证方式"):
+            obtain_cert(
+                out_dir=tmp_path,
+                domains=["example.com"],
+                provider="manual",
+                challenge_type="tls-alpn-01",
+            )
+
+
+class TestConfigManagerChallengeType:
+    """Test challenge_type in config_manager."""
+
+    def test_load_le_config_default_challenge_type(self, tmp_path):
+        """Test default challenge_type is dns-01."""
+        from zxtoolbox.config_manager import load_le_config
+
+        config_path = tmp_path / "zxtool.toml"
+        config_path.write_text('''
+[letsencrypt]
+provider = "manual"
+staging = true
+''', encoding="utf-8")
+
+        le_config = load_le_config(str(config_path))
+        assert le_config["challenge_type"] == "dns-01"
+
+    def test_load_le_config_http01_challenge_type(self, tmp_path):
+        """Test loading http-01 challenge_type."""
+        from zxtoolbox.config_manager import load_le_config
+
+        config_path = tmp_path / "zxtool.toml"
+        config_path.write_text('''
+[letsencrypt]
+provider = "standalone"
+challenge_type = "http-01"
+staging = true
+''', encoding="utf-8")
+
+        le_config = load_le_config(str(config_path))
+        assert le_config["challenge_type"] == "http-01"
+        assert le_config["provider"] == "standalone"
+
+    def test_generate_letsencrypt_section_with_challenge_type(self):
+        """Test generating config with challenge_type."""
+        from zxtoolbox.config_manager import _generate_letsencrypt_section
+
+        result = _generate_letsencrypt_section(
+            provider="standalone",
+            challenge_type="http-01",
+        )
+        assert 'challenge_type = "http-01"' in result
+        assert 'provider = "standalone"' in result

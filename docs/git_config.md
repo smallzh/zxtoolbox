@@ -12,6 +12,7 @@
 - **拉取更新**: 从远程仓库拉取最新内容（git pull）
 - **按名称拉取**: 通过项目名称从配置文件查找项目并拉取更新
 - **自动克隆**: 如果项目目录不存在且配置了 `git_repository`，自动从远程克隆
+- **批量拉取**: 当当前目录不是 Git 仓库时，自动遍历配置文件中所有项目执行 pull 或 clone
 
 ## 0x02. 命令格式
 
@@ -108,7 +109,38 @@ zxtool git config fill /path/to/my-project --name "John Doe" --email "john@examp
 
 从远程仓库拉取最新内容并合并到当前分支。
 
-### 4.1 按项目目录拉取
+### 4.1 批量拉取（无参数时自动模式）
+
+当不指定 `--name` 和 `project_dir` 且当前目录不是 Git 仓库时，`zxtool git pull` 会自动遍历配置文件中的所有项目，对每个项目执行 pull 或 clone：
+
+```bash
+# 在非 Git 目录下执行，自动遍历配置文件中所有项目
+zxtool git pull
+```
+
+**行为说明：**
+
+- 如果项目目录已存在且是 Git 仓库：执行 `git pull`
+- 如果项目目录不存在但配置了 `git_repository`：执行 `git clone` 将项目克隆到指定目录
+- 如果项目缺少 `project_dir` 或目录不存在且未配置 `git_repository`：跳过并报告错误
+
+**输出示例：**
+
+```
+[1/3] 拉取项目: myblog (/path/to/myblog)
+Already up to date.
+[2/3] 克隆项目: api-docs (https://github.com/user/api-docs.git)
+Cloning into '/path/to/api-docs'...
+[3/3] 拉取项目: main-site (/path/to/main-site)
+Updating abc1234..def5678
+
+========================================
+批量操作完成: 3/3 成功
+  pull: 2  clone: 1  跳过: 0  错误: 0
+========================================
+```
+
+### 4.2 按项目目录拉取
 
 ```bash
 zxtool git pull [项目路径] [--remote 远程名称] [--branch 分支名称]
@@ -139,7 +171,7 @@ zxtool git pull --remote upstream --branch main
 zxtool git pull /path/to/my-project --remote origin --branch develop
 ```
 
-### 4.2 按项目名称拉取
+### 4.3 按项目名称拉取
 
 通过项目名称从 `zxtool.toml` 配置文件查找项目并拉取更新。如果项目目录不存在但配置了 `git_repository`，会自动从远程克隆项目。
 
@@ -203,6 +235,11 @@ email = "john@example.com"
 [[git.user]]
 name = "Jane Smith"
 email = "jane@company.com"
+
+# Nginx 站点配置
+[nginx]
+http_port = 80
+https_port = 443
 
 # 项目配置（支持按名称拉取和自动克隆）
 [[projects]]
