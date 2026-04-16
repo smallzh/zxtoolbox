@@ -98,6 +98,7 @@ CHALLENGE_POLL_MAX = 30
 DNS_PROPAGATION_WAIT = 10
 RENEW_DAYS_BEFORE = 30
 
+
 # ============================================================
 # DNS-01 提供商接口
 # ============================================================
@@ -384,7 +385,7 @@ class HTTP01Provider:
     name = "base"
 
     def setup_challenge(
-        self, domain: str, token: str, key_authorization: str
+            self, domain: str, token: str, key_authorization: str
     ) -> None:
         """设置 HTTP-01 验证资源。
 
@@ -398,7 +399,7 @@ class HTTP01Provider:
         raise NotImplementedError
 
     def cleanup_challenge(
-        self, domain: str, token: str, key_authorization: str
+            self, domain: str, token: str, key_authorization: str
     ) -> None:
         """清理 HTTP-01 验证资源。
 
@@ -434,7 +435,7 @@ class WebrootProvider(HTTP01Provider):
         self._webroot_path = Path(self._webroot)
 
     def setup_challenge(
-        self, domain: str, token: str, key_authorization: str
+            self, domain: str, token: str, key_authorization: str
     ) -> None:
         """将验证文件写入 webroot 目录。"""
         challenge_dir = self._webroot_path / ".well-known" / "acme-challenge"
@@ -451,7 +452,7 @@ class WebrootProvider(HTTP01Provider):
         )
 
     def cleanup_challenge(
-        self, domain: str, token: str, key_authorization: str
+            self, domain: str, token: str, key_authorization: str
     ) -> None:
         """删除验证文件。"""
         challenge_dir = self._webroot_path / ".well-known" / "acme-challenge"
@@ -497,7 +498,7 @@ class StandaloneProvider(HTTP01Provider):
         self._resources: set = set()
 
     def setup_challenge(
-        self, domain: str, token: str, key_authorization: str
+            self, domain: str, token: str, key_authorization: str
     ) -> None:
         """准备验证资源（不启动服务器，start_server 时启动）。"""
         # 资源会在 _start_http01_server 中使用
@@ -508,7 +509,7 @@ class StandaloneProvider(HTTP01Provider):
         )
 
     def cleanup_challenge(
-        self, domain: str, token: str, key_authorization: str
+            self, domain: str, token: str, key_authorization: str
     ) -> None:
         """停止服务器。"""
         self._stop_server()
@@ -557,7 +558,7 @@ _HTTP01_PROVIDER_MAP: Dict[str, type[HTTP01Provider]] = {
 
 
 def get_http01_provider(
-    name: str, config: Optional[Dict[str, Any]] = None
+        name: str, config: Optional[Dict[str, Any]] = None
 ) -> HTTP01Provider:
     """根据名称获取 HTTP-01 验证提供商实例。"""
     cls = _HTTP01_PROVIDER_MAP.get(name.lower())
@@ -671,10 +672,10 @@ def _compute_dns01_validation(key_auth: str) -> str:
 
 
 def _wait_for_dns_propagation(
-    record_name: str,
-    expected_value: str,
-    max_attempts: int = DNS_POLL_MAX,
-    interval: int = DNS_POLL_INTERVAL,
+        record_name: str,
+        expected_value: str,
+        max_attempts: int = DNS_POLL_MAX,
+        interval: int = DNS_POLL_INTERVAL,
 ) -> bool:
     """等待 DNS TXT 记录全局生效。
 
@@ -815,12 +816,12 @@ class ACMEClient:
         )
 
     def obtain_certificate(
-        self,
-        domains: List[str],
-        cert_key_path: Path,
-        challenge_type: str = "dns-01",
-        dns_provider: Optional[DNSProvider] = None,
-        http01_provider: Optional[HTTP01Provider] = None,
+            self,
+            domains: List[str],
+            cert_key_path: Path,
+            challenge_type: str = "dns-01",
+            dns_provider: Optional[DNSProvider] = None,
+            http01_provider: Optional[HTTP01Provider] = None,
     ) -> Dict[str, bytes]:
         """获取证书。
 
@@ -912,8 +913,7 @@ class ACMEClient:
 
         finally:
             # 清理验证资源
-            pass
-            # self._cleanup_challenges(challenge_type, cleanup_tasks, dns_provider)
+            self._cleanup_challenges(challenge_type, cleanup_tasks, dns_provider)
 
         # 提取证书数据
         fullchain_pem = finalized_order.fullchain_pem.encode("utf-8")
@@ -940,10 +940,10 @@ class ACMEClient:
         }
 
     def _fulfill_dns01_challenge(
-        self,
-        authz: Any,
-        domain: str,
-        dns_provider: DNSProvider,
+            self,
+            authz: Any,
+            domain: str,
+            dns_provider: DNSProvider,
     ) -> None:
         """完成 DNS-01 验证。
 
@@ -1008,11 +1008,11 @@ class ACMEClient:
             logger.warning("DNS 记录清理失败: %s", e)
 
     def _fulfill_http01_challenge(
-        self,
-        authz: Any,
-        domain: str,
-        http01_provider: HTTP01Provider,
-        cleanup_tasks: List[Dict[str, Any]],
+            self,
+            authz: Any,
+            domain: str,
+            http01_provider: HTTP01Provider,
+            cleanup_tasks: List[Dict[str, Any]],
     ) -> None:
         """完成 HTTP-01 验证。
 
@@ -1088,7 +1088,7 @@ class ACMEClient:
         # 确保在所有域名验证完成、订单结束后才删除。
 
     def _poll_authorization(
-        self, authz: Any, domain: str, challenge_label: str
+            self, authz: Any, domain: str, challenge_label: str
     ) -> None:
         """轮询等待 ACME 授权验证完成。
 
@@ -1118,7 +1118,7 @@ class ACMEClient:
                     if chall.error:
                         logger.error("  验证失败详情: %s", chall.error)
                 raise RuntimeError(f"{challenge_label} 验证失败: {domain}")
-            elif status in ("pending", "processing"):
+            elif status == "pending" or status == "processing":
                 # pending: 服务器尚未开始验证
                 # processing: 服务器正在验证中，不要中断
                 time.sleep(CHALLENGE_POLL_INTERVAL)
@@ -1129,10 +1129,10 @@ class ACMEClient:
             raise RuntimeError(f"{challenge_label} 验证超时: {domain}")
 
     def _cleanup_challenges(
-        self,
-        challenge_type: str,
-        cleanup_tasks: List[Dict[str, Any]],
-        dns_provider: Optional[DNSProvider] = None,
+            self,
+            challenge_type: str,
+            cleanup_tasks: List[Dict[str, Any]],
+            dns_provider: Optional[DNSProvider] = None,
     ) -> None:
         """清理验证资源（失败时的安全网）。
 
@@ -1174,14 +1174,14 @@ def init(out_dir: Path) -> None:
 
 
 def obtain_cert(
-    out_dir: Path,
-    domains: List[str],
-    provider: str = "manual",
-    provider_config: Optional[Dict[str, Any]] = None,
-    staging: bool = True,
-    email: str = DEFAULT_EMAIL,
-    key_size: int = 2048,
-    challenge_type: str = "dns-01",
+        out_dir: Path,
+        domains: List[str],
+        provider: str = "manual",
+        provider_config: Optional[Dict[str, Any]] = None,
+        staging: bool = True,
+        email: str = DEFAULT_EMAIL,
+        key_size: int = 2048,
+        challenge_type: str = "dns-01",
 ) -> None:
     """从 Let's Encrypt 获取证书。
 
@@ -1334,9 +1334,9 @@ def obtain_cert(
 
 
 def renew_certs(
-    out_dir: Path,
-    provider_config: Optional[Dict[str, Any]] = None,
-    dry_run: bool = False,
+        out_dir: Path,
+        provider_config: Optional[Dict[str, Any]] = None,
+        dry_run: bool = False,
 ) -> None:
     """检查并续签即将到期的证书。
 
@@ -1477,10 +1477,10 @@ def show_status(out_dir: Path) -> None:
 
 
 def revoke_cert(
-    out_dir: Path,
-    domain: str,
-    provider: str = "manual",
-    provider_config: Optional[Dict[str, Any]] = None,
+        out_dir: Path,
+        domain: str,
+        provider: str = "manual",
+        provider_config: Optional[Dict[str, Any]] = None,
 ) -> None:
     """吊销已签发的证书。
 
@@ -1545,12 +1545,12 @@ def revoke_cert(
 
 
 def _update_renew_state(
-    out_dir: Path,
-    primary_domain: str,
-    domains: List[str],
-    provider: str,
-    staging: bool,
-    challenge_type: str = "dns-01",
+        out_dir: Path,
+        primary_domain: str,
+        domains: List[str],
+        provider: str,
+        staging: bool,
+        challenge_type: str = "dns-01",
 ) -> None:
     """更新续签状态文件。
 
@@ -1591,8 +1591,8 @@ def _update_renew_state(
 
 
 def batch_obtain_certs(
-    config_path: str | Path | None = None,
-    dry_run: bool = False,
+        config_path: str | Path | None = None,
+        dry_run: bool = False,
 ) -> dict[str, bool]:
     """根据配置文件批量签发证书。
 
@@ -1701,8 +1701,8 @@ def batch_obtain_certs(
 
 
 def batch_renew_certs(
-    config_path: str | Path | None = None,
-    dry_run: bool = False,
+        config_path: str | Path | None = None,
+        dry_run: bool = False,
 ) -> dict[str, bool]:
     """根据配置文件批量续签即将到期的证书。
 
