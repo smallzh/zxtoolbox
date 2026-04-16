@@ -912,7 +912,8 @@ class ACMEClient:
 
         finally:
             # 清理验证资源
-            self._cleanup_challenges(challenge_type, cleanup_tasks, dns_provider)
+            pass
+            # self._cleanup_challenges(challenge_type, cleanup_tasks, dns_provider)
 
         # 提取证书数据
         fullchain_pem = finalized_order.fullchain_pem.encode("utf-8")

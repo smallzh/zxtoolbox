@@ -24,9 +24,12 @@ import zxtoolbox.video_download as vd
 import zxtoolbox.ssl_cert as ssl
 import zxtoolbox.git_config as gc
 import zxtoolbox.config_manager as cm
+import zxtoolbox.logging_manager as lm
 
 
 def main():
+    # 初始化日志系统
+    lm.setup_logging()
     parser = argparse.ArgumentParser(
         description="ZX Toolbox - 跨平台工具集合",
         formatter_class=argparse.RawDescriptionHelpFormatter,

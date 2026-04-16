@@ -14,12 +14,14 @@ from zxtoolbox.config_manager import (
     _generate_letsencrypt_section,
     _generate_git_section,
     _generate_nginx_section,
+    _generate_logging_section,
     generate_config_content,
     write_config,
     show_config,
     load_config,
     load_le_config,
     load_nginx_config,
+    load_logging_config,
     load_projects_with_domain,
     load_project_by_name,
 )
@@ -599,14 +601,14 @@ domain = "*.example.com"
 class TestInteractiveInit:
     """Test interactive config initialization."""
 
-    @patch("builtins.input", side_effect=["n", "n", "", "", EOFError()])
+    @patch("builtins.input", side_effect=["n", "n", "n", "", "", EOFError()])
     def test_interactive_init_skip_all(self, mock_input, tmp_path):
-        """Test interactive init skipping LE, nginx, projects, and git sections."""
+        """Test interactive init skipping LE, nginx, logging, projects, and git sections."""
         config_path = tmp_path / "zxtool.toml"
         from zxtoolbox.config_manager import interactive_init
 
-        # Inputs: "n" = skip LE config, "n" = skip nginx, "" = skip project dir, "" = skip git name
-        # Then EOFError on confirmation or next prompt
+        # Inputs: "n" = skip LE config, "n" = skip nginx, "n" = skip logging,
+        # "" = skip project dir, "" = skip git name, then EOFError on confirmation
         result = interactive_init(config_path)
         # Should return False due to EOFError during confirmation, or True if completed
         assert result is False or mock_input.call_count >= 1
@@ -897,3 +899,151 @@ listen_port = 9090
         projects = [{"project_dir": "/path/to/docs"}]
         result = _generate_projects_section(projects)
         assert "listen_port" not in result
+
+
+class TestGenerateLoggingSection:
+    """Test logging config section generation."""
+
+    def test_default_settings(self):
+        result = _generate_logging_section()
+        assert "[logging]" in result
+        assert "log_level = \"INFO\"" in result
+        assert "zxtool_logs" in result
+
+    def test_custom_log_dir(self):
+        result = _generate_logging_section(log_dir="/var/log/zxtool")
+        assert '"/var/log/zxtool"' in result
+
+    def test_custom_log_level(self):
+        result = _generate_logging_section(log_level="DEBUG")
+        assert "log_level = \"DEBUG\"" in result
+
+    def test_log_level_case_insensitive(self):
+        result = _generate_logging_section(log_level="warning")
+        assert "log_level = \"WARNING\"" in result
+
+    def test_empty_log_dir_uses_default(self):
+        result = _generate_logging_section(log_dir="")
+        assert "zxtool_logs" in result
+
+
+class TestLoadLoggingConfig:
+    """Test logging config loading."""
+
+    def test_load_logging_config_full(self, tmp_path):
+        """Test loading complete logging config."""
+        config_path = tmp_path / "zxtool.toml"
+        config_path.write_text('''
+[logging]
+log_dir = "/var/log/zxtool"
+log_level = "DEBUG"
+''', encoding="utf-8")
+
+        logging_config = load_logging_config(str(config_path))
+        assert logging_config["log_dir"] == "/var/log/zxtool"
+        assert logging_config["log_level"] == "DEBUG"
+
+    def test_load_logging_config_defaults(self, tmp_path):
+        """Test logging config defaults when section is missing."""
+        config_path = tmp_path / "zxtool.toml"
+        config_path.write_text('[[projects]]\nproject_dir = "/test"\n', encoding="utf-8")
+
+        logging_config = load_logging_config(str(config_path))
+        assert "zxtool_logs" in logging_config["log_dir"]
+        assert logging_config["log_level"] == "INFO"
+
+    def test_load_logging_config_partial(self, tmp_path):
+        """Test loading partial logging config uses defaults."""
+        config_path = tmp_path / "zxtool.toml"
+        config_path.write_text('''
+[logging]
+log_dir = "/custom/logs"
+''', encoding="utf-8")
+
+        logging_config = load_logging_config(str(config_path))
+        assert logging_config["log_dir"] == "/custom/logs"
+        assert logging_config["log_level"] == "INFO"
+
+    def test_load_logging_config_file_not_found(self, tmp_path):
+        """Test FileNotFoundError when config file doesn't exist."""
+        with pytest.raises(FileNotFoundError):
+            load_logging_config(str(tmp_path / "nonexistent.toml"))
+
+
+class TestConfigWithLogging:
+    """Test full config generation with logging section."""
+
+    def test_config_with_logging(self):
+        logging_config = {"log_dir": "/var/log/zxtool", "log_level": "DEBUG"}
+        result = generate_config_content(logging_config=logging_config)
+        assert "[logging]" in result
+        assert '"/var/log/zxtool"' in result
+        assert '"DEBUG"' in result
+
+    def test_config_with_logging_and_projects(self):
+        logging_config = {"log_dir": "/var/log/zxtool", "log_level": "INFO"}
+        projects = [
+            {"project_dir": "/myproject", "domain": "example.com"},
+        ]
+        result = generate_config_content(
+            mkdocs_projects=projects,
+            logging_config=logging_config,
+        )
+        assert "[logging]" in result
+        assert "[[projects]]" in result
+
+    def test_write_config_with_logging(self, tmp_path):
+        """Test writing config with logging settings."""
+        config_path = tmp_path / "zxtool.toml"
+        logging_config = {"log_dir": "/var/log/zxtool", "log_level": "DEBUG"}
+        result = write_config(
+            config_path,
+            logging_config=logging_config,
+            force=True,
+        )
+        assert result is True
+        content = config_path.read_text(encoding="utf-8")
+        assert "[logging]" in content
+        assert "/var/log/zxtool" in content
+        assert "DEBUG" in content
+
+    def test_load_config_with_logging(self, tmp_path):
+        """Test loading config with logging section."""
+        config_path = tmp_path / "zxtool.toml"
+        config_path.write_text('''
+[logging]
+log_dir = "/var/log/zxtool"
+log_level = "WARNING"
+
+[[projects]]
+project_dir = "/myproject"
+domain = "example.com"
+''', encoding="utf-8")
+
+        data = load_config(str(config_path))
+        assert data["logging"]["log_dir"] == "/var/log/zxtool"
+        assert data["logging"]["log_level"] == "WARNING"
+
+    def test_config_with_all_sections_including_logging(self):
+        le_config = {
+            "provider": "cloudflare",
+            "output_dir": "out_le",
+            "staging": True,
+            "email": "admin@example.com",
+        }
+        nginx_config = {"http_port": 80, "https_port": 443}
+        logging_config = {"log_dir": "/var/log/zxtool", "log_level": "INFO"}
+        projects = [{"project_dir": "/myproject", "domain": "example.com"}]
+        git_users = [{"name": "Dev", "email": "dev@example.com"}]
+        result = generate_config_content(
+            mkdocs_projects=projects,
+            git_users=git_users,
+            letsencrypt_config=le_config,
+            nginx_config=nginx_config,
+            logging_config=logging_config,
+        )
+        assert "[letsencrypt]" in result
+        assert "[nginx]" in result
+        assert "[logging]" in result
+        assert "[[projects]]" in result
+        assert "[[git.user]]" in result

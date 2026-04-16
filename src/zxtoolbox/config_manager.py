@@ -1,7 +1,7 @@
 """zxtool.toml 配置文件管理模块。
 
 生成和管理 ~/.config/zxtool.toml 配置文件，支持 MkDocs 项目、
-Git 用户、Let's Encrypt 证书和 Nginx 站点配置。
+Git 用户、Let's Encrypt 证书、Nginx 站点和日志配置。
 
 配置文件结构::
 
@@ -20,6 +20,11 @@ Git 用户、Let's Encrypt 证书和 Nginx 站点配置。
     [nginx]
     http_port = 80
     https_port = 443
+
+    # 日志配置
+    [logging]
+    log_dir = "/path/to/logs"
+    log_level = "INFO"
 
     # 项目配置
     [[projects]]
@@ -249,11 +254,43 @@ def _generate_nginx_section(
     return "\n".join(lines)
 
 
+def _generate_logging_section(
+    log_dir: str = "",
+    log_level: str = "INFO",
+) -> str:
+    """生成日志配置部分。
+
+    Args:
+        log_dir: 日志文件存放目录路径。
+        log_level: 日志级别（默认 INFO）。
+
+    Returns:
+        TOML 格式的日志配置字符串。
+    """
+    lines = [
+        "# ============================================",
+        "# 日志配置",
+        "# ============================================",
+        "",
+        "[logging]",
+    ]
+
+    if log_dir:
+        lines.append(f"log_dir = {_escape_toml_string(log_dir)}")
+    else:
+        lines.append(f"log_dir = {_escape_toml_string(str(Path.home() / '.config' / 'zxtool_logs'))}")
+
+    lines.append(f"log_level = {_escape_toml_string(log_level.upper())}")
+    lines.append("")
+    return "\n".join(lines)
+
+
 def generate_config_content(
     mkdocs_projects: list[dict] | None = None,
     git_users: list[dict] | None = None,
     letsencrypt_config: dict[str, Any] | None = None,
     nginx_config: dict[str, Any] | None = None,
+    logging_config: dict[str, Any] | None = None,
 ) -> str:
     """生成完整的 zxtool.toml 配置文件内容。
 
@@ -270,6 +307,9 @@ def generate_config_content(
         nginx_config: Nginx 全局配置字典，可包含：
             - http_port: HTTP 监听端口（默认 80）
             - https_port: HTTPS 监听端口（默认 443）
+        logging_config: 日志配置字典，可包含：
+            - log_dir: 日志文件存放目录
+            - log_level: 日志级别（默认 INFO）
 
     Returns:
         完整的 TOML 配置文件内容。
@@ -307,6 +347,14 @@ def generate_config_content(
         )
         parts.append(nginx_section)
 
+    # 日志配置
+    if logging_config:
+        logging_section = _generate_logging_section(
+            log_dir=logging_config.get("log_dir", ""),
+            log_level=logging_config.get("log_level", "INFO"),
+        )
+        parts.append(logging_section)
+
     # 项目配置
     projects_section = _generate_projects_section(mkdocs_projects or [])
     if projects_section:
@@ -318,7 +366,7 @@ def generate_config_content(
         parts.append(git_section)
 
     # 如果没有任何配置，添加注释说明
-    if not mkdocs_projects and not git_users and not letsencrypt_config and not nginx_config:
+    if not mkdocs_projects and not git_users and not letsencrypt_config and not nginx_config and not logging_config:
         parts.append("# 暂无配置项")
         parts.append("# 运行 'zxtool config init' 交互式生成配置")
         parts.append("")
@@ -332,6 +380,7 @@ def write_config(
     git_users: list[dict] | None = None,
     letsencrypt_config: dict[str, Any] | None = None,
     nginx_config: dict[str, Any] | None = None,
+    logging_config: dict[str, Any] | None = None,
     force: bool = False,
 ) -> bool:
     """写入 zxtool.toml 配置文件。
@@ -344,6 +393,9 @@ def write_config(
         nginx_config: Nginx 全局配置字典，可包含：
             - http_port: HTTP 监听端口（默认 80）
             - https_port: HTTPS 监听端口（默认 443）
+        logging_config: 日志配置字典，可包含：
+            - log_dir: 日志文件存放目录
+            - log_level: 日志级别（默认 INFO）
         force: 是否覆盖已存在的文件。
 
     Returns:
@@ -369,6 +421,7 @@ def write_config(
         git_users=git_users,
         letsencrypt_config=letsencrypt_config,
         nginx_config=nginx_config,
+        logging_config=logging_config,
     )
 
     # 写入文件
@@ -474,6 +527,30 @@ def load_nginx_config(config_path: str | Path | None = None) -> dict[str, Any]:
     return {
         "http_port": nginx.get("http_port", 80),
         "https_port": nginx.get("https_port", 443),
+    }
+
+
+def load_logging_config(config_path: str | Path | None = None) -> dict[str, Any]:
+    """加载日志全局配置。
+
+    从 zxtool.toml 的 [logging] 节点读取配置。
+
+    Args:
+        config_path: 配置文件路径，默认为 ~/.config/zxtool.toml。
+
+    Returns:
+        日志配置字典，包含:
+            - log_dir: 日志文件存放目录 (默认 ~/.config/zxtool_logs)
+            - log_level: 日志级别 (默认 INFO)
+
+    Raises:
+        FileNotFoundError: 配置文件不存在时。
+    """
+    data = load_config(config_path)
+    logging_sec = data.get("logging", {})
+    return {
+        "log_dir": logging_sec.get("log_dir", str(Path.home() / ".config" / "zxtool_logs")),
+        "log_level": logging_sec.get("log_level", "INFO"),
     }
 
 
@@ -607,6 +684,7 @@ def interactive_init(
     git_users = []
     letsencrypt_config = None
     nginx_config = None
+    logging_config = None
 
     # --- Let's Encrypt 配置 ---
     print("\n--- Let's Encrypt 证书配置 ---")
@@ -697,6 +775,32 @@ def interactive_init(
         except ValueError:
             print("  [WARN] 端口格式无效，使用默认值")
             nginx_config = {"http_port": 80, "https_port": 443}
+
+    # --- 日志配置 ---
+    print("\n--- 日志配置 ---")
+    try:
+        setup_logging = input("配置日志目录? (y/N): ").strip().lower()
+    except (EOFError, KeyboardInterrupt):
+        print("\n")
+        setup_logging = "n"
+
+    if setup_logging in ("y", "yes"):
+        logging_config = {}
+        try:
+            default_log_dir = str(Path.home() / ".config" / "zxtool_logs")
+            log_dir = input(f"  日志目录 [默认 {default_log_dir}]: ").strip()
+            logging_config["log_dir"] = log_dir if log_dir else default_log_dir
+
+            log_level = input("  日志级别 [DEBUG/INFO/WARNING/ERROR, 默认 INFO]: ").strip().upper()
+            if log_level in ("DEBUG", "INFO", "WARNING", "ERROR"):
+                logging_config["log_level"] = log_level
+            else:
+                logging_config["log_level"] = "INFO"
+
+            print("  [OK] 日志配置已添加")
+        except (EOFError, KeyboardInterrupt):
+            print("\n")
+            logging_config = None
 
     # --- MkDocs / 项目配置 ---
     print("\n--- 项目配置 ---")
@@ -803,6 +907,13 @@ def interactive_init(
     else:
         print("\nNginx: 未配置")
 
+    if logging_config:
+        print(f"\n日志:")
+        print(f"  日志目录:   {logging_config.get('log_dir', '~/.config/zxtool_logs')}")
+        print(f"  日志级别:   {logging_config.get('log_level', 'INFO')}")
+    else:
+        print("\n日志: 未配置")
+
     if mkdocs_projects:
         print(f"\n项目: {len(mkdocs_projects)} 个")
         for proj in mkdocs_projects:
@@ -838,6 +949,7 @@ def interactive_init(
         git_users=git_users if git_users else None,
         letsencrypt_config=letsencrypt_config,
         nginx_config=nginx_config,
+        logging_config=logging_config,
         force=True,
     )
 

@@ -1,6 +1,6 @@
 # 配置文件管理
 
-管理 `zxtool` 的全局配置文件 `~/.config/zxtool.toml`，支持 MkDocs 项目、Let's Encrypt 证书、Nginx 站点和 Git 仓库用户配置。
+管理 `zxtool` 的全局配置文件 `~/.config/zxtool.toml`，支持 MkDocs 项目、Let's Encrypt 证书、Nginx 站点、日志配置和 Git 仓库用户配置。
 
 ## 0x01. 功能特性
 
@@ -9,6 +9,7 @@
 - **MkDocs 配置**: 配置多个 MkDocs 项目的批量构建参数
 - **域名绑定**: 在项目中配置域名，支持 Let's Encrypt 自动证书签发
 - **Nginx 配置**: 全局配置 Nginx 站点监听端口，项目级别可覆盖
+- **日志配置**: 配置日志文件存放目录和日志级别，工具执行的日志自动记录到文件
 - **Git 配置**: 配置默认的 git user.name 和 user.email
 - **配置查看**: 快速查看当前配置文件内容
 - **强制覆盖**: 支持 `--force` 覆盖已有配置
@@ -64,6 +65,12 @@ zxtool config init
   HTTPS 端口 [默认 443]: 443
   [OK] Nginx 配置已添加
 
+--- 日志配置 ---
+配置日志目录? (y/N): y
+  日志目录 [默认 ~/.config/zxtool_logs]: /var/log/zxtool
+  日志级别 [DEBUG/INFO/WARNING/ERROR, 默认 INFO]: INFO
+  [OK] 日志配置已添加
+
 --- Git 仓库用户配置 ---
 添加 Git user.name 和 user.email（留空跳过）
 
@@ -87,6 +94,10 @@ Let's Encrypt:
 Nginx:
   HTTP 端口:  80
   HTTPS 端口: 443
+
+日志:
+  日志目录:   /var/log/zxtool
+  日志级别:   INFO
 
 项目: 1 个
   - /var/www/myblog (域名: myblog.example.com)
@@ -185,6 +196,14 @@ zone_id = "your_cloudflare_zone_id"
 [nginx]
 http_port = 80
 https_port = 443
+
+# ============================================
+# 日志配置
+# ============================================
+
+[logging]
+log_dir = "/var/log/zxtool"
+log_level = "INFO"
 
 # ============================================
 # 项目配置
@@ -301,6 +320,15 @@ Standalone 提供商（HTTP-01）：
 | `https_port` | integer | ❌ | HTTPS 监听端口（默认 443），用于 `zxtool nginx generate` 生成站点配置 |
 
 > **端口说明**: `[nginx]` 中的端口是全局默认值，项目级别的 `listen_port` 字段可以覆盖 `http_port`。生成 HTTPS 配置时，HTTP 端口用于重定向，HTTPS 端口用于加密通信。
+
+#### 日志配置 (`[logging]`)
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `log_dir` | string | ❌ | 日志文件存放目录（默认 `~/.config/zxtool_logs`） |
+| `log_level` | string | ❌ | 日志级别，可选 `DEBUG`/`INFO`/`WARNING`/`ERROR`（默认 `INFO`） |
+
+> **日志说明**: 配置 `[logging]` 后，`zxtool` 运行时 INFO 及以上级别的日志将自动写入 `log_dir` 目录下的日志文件。日志文件按日期命名，格式为 `zxtool_YYYY-MM-DD.log`，每日自动轮转，保留最近 7 天的日志。如果未配置 `[logging]` 节，则使用默认日志目录 `~/.config/zxtool_logs` 和默认级别 `INFO`。
 
 ## 0x04. 与其他命令的集成
 
