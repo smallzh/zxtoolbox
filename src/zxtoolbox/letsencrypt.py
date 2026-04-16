@@ -1080,11 +1080,11 @@ class ACMEClient:
         # 轮询等待验证完成
         self._poll_authorization(authz, domain, "HTTP-01")
 
-        # 清理验证资源
-        try:
-            http01_provider.cleanup_challenge(domain, token, key_auth)
-        except Exception as e:
-            logger.warning("HTTP-01 资源清理失败: %s", e)
+        # 注意：不在单个域名验证通过后立即清理 token 文件。
+        # LE 服务器可能对同一域名发起多次验证请求（例如重试或网络延迟），
+        # 立即删除会导致后续请求失败（Nginx 报 "No such file or directory"）。
+        # token 文件的清理统一由 obtain_certificate 的 finally 块处理，
+        # 确保在所有域名验证完成、订单结束后才删除。
 
     def _poll_authorization(
         self, authz: Any, domain: str, challenge_label: str
@@ -1117,7 +1117,9 @@ class ACMEClient:
                     if chall.error:
                         logger.error("  验证失败详情: %s", chall.error)
                 raise RuntimeError(f"{challenge_label} 验证失败: {domain}")
-            elif status == "pending":
+            elif status in ("pending", "processing"):
+                # pending: 服务器尚未开始验证
+                # processing: 服务器正在验证中，不要中断
                 time.sleep(CHALLENGE_POLL_INTERVAL)
             else:
                 raise RuntimeError(f"未知的验证状态: {status}")

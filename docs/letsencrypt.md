@@ -473,7 +473,9 @@ server {
 - 确保域名解析到正确的服务器 IP
 - 确保 80 端口可从外部访问（防火墙、安全组等）
 - Webroot 模式：确保 `.well-known/acme-challenge/` 目录可写，且 Nginx/Apache 配置了该路径的访问权限
+- Webroot 模式：确保 `--provider-config` 中的 `webroot` 路径与 Nginx 的 `root` 指令一致（例如 Nginx 配置 `root /var/www/html;`，则 webroot 也应为 `/var/www/html`）
 - Standalone 模式：确保 80 端口未被其他服务占用
+- 如 Nginx 错误日志中出现 `No such file or directory`，请检查 webroot 路径是否正确，以及 Nginx 配置中 `server_name` 是否包含待验证域名
 
 ### Q4: 什么时候用 DNS-01，什么时候用 HTTP-01？
 
