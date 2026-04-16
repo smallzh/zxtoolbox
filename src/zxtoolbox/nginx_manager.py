@@ -25,22 +25,6 @@ NGINX_SITE_TEMPLATE = """\
 # Nginx 配置 - 由 zxtool 自动生成
 # 站点: {server_name}
 
-# HTTP -> HTTPS 重定向
-server {{
-    listen {http_port};
-    listen [::]:{http_port};
-    server_name {server_name};
-
-    # Let's Encrypt ACME 验证路径
-    location ^~ /.well-known/acme-challenge/ {{
-        root {webroot};
-    }}
-
-    location / {{
-        return 301 https://$host$request_uri;
-    }}
-}}
-
 # HTTPS 站点
 server {{
     listen {https_port} ssl http2;

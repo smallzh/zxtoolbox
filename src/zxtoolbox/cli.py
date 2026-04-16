@@ -279,25 +279,36 @@ def main():
         "-d", "--domain", nargs="+", required=True, help="域名列表"
     )
     le_issue_parser.add_argument(
-        "--provider", default="manual", help="验证提供商 (DNS-01: manual/cloudflare/aliyun; HTTP-01: webroot/standalone)"
+        "--provider", default=None,
+        help="验证提供商 (DNS-01: manual/cloudflare/aliyun; HTTP-01: webroot/standalone)，不指定则从配置文件读取"
     )
     le_issue_parser.add_argument(
-        "--provider-config", type=str, default=None, help="提供商配置 (JSON 字符串)"
+        "--provider-config", type=str, default=None, help="提供商配置 (JSON 字符串)，不指定则从配置文件读取"
     )
     le_issue_parser.add_argument(
         "--challenge",
-        default="dns-01",
+        default=None,
         choices=["dns-01", "http-01"],
-        help="验证方式 (dns-01: 支持泛域名, 需 DNS 操作; http-01: 仅普通域名, 无需 DNS 操作, 默认 dns-01)",
+        help="验证方式 (dns-01: 支持泛域名; http-01: 仅普通域名)，不指定则从配置文件读取",
     )
     le_issue_parser.add_argument(
-        "--production", action="store_true", help="使用生产环境（默认测试环境）"
+        "--production", action="store_true", default=None,
+        help="使用生产环境（默认测试环境），不指定则从配置文件读取"
     )
-    le_issue_parser.add_argument("--email", default="", help="联系邮箱")
+    le_issue_parser.add_argument(
+        "--email", default=None, help="联系邮箱，不指定则从配置文件读取"
+    )
     le_issue_parser.add_argument(
         "--key-size", type=int, default=2048, choices=[2048, 4096], help="RSA 密钥长度"
     )
-    le_issue_parser.add_argument("--output", type=str, default=None, help="输出目录")
+    le_issue_parser.add_argument(
+        "--output", type=str, default=None,
+        help="输出目录，不指定则从配置文件读取"
+    )
+    le_issue_parser.add_argument(
+        "--le-config", type=str, default=None,
+        help="zxtool.toml 配置文件路径（默认: ~/.config/zxtool.toml）"
+    )
 
     # le renew - 续签
     le_renew_parser = le_subparsers.add_parser("renew", help="续签即将到期的证书")
@@ -539,14 +550,36 @@ def main():
             out_dir = Path(default_out).resolve()
 
         if le_cmd == "issue":
-            challenge_type = getattr(args, "challenge", "dns-01")
+            # 尝试从配置文件加载默认值，未指定的参数用配置文件值回退
+            try:
+                le_cfg = cm.load_le_config(config_path=getattr(args, "le_config", None))
+            except (FileNotFoundError, ValueError):
+                le_cfg = {}
+
+            issue_provider = args.provider or le_cfg.get("provider", "manual")
+            issue_challenge = args.challenge or le_cfg.get("challenge_type", "dns-01")
+            issue_staging = not args.production if args.production is not None else le_cfg.get("staging", True)
+            issue_email = args.email if args.email is not None else le_cfg.get("email", "")
+
+            # provider_config: 命令行优先，否则用配置文件
+            issue_provider_config = provider_config
+            if issue_provider_config is None:
+                issue_provider_config = le_cfg.get("provider_config") or None
+
+            # output: 命令行优先，否则用配置文件
+            if args.output:
+                issue_out_dir = Path(args.output).resolve()
+            else:
+                issue_out_dir = Path(le_cfg.get("output_dir", "out_le")).resolve()
+
+            challenge_type = issue_challenge
             le.obtain_cert(
-                out_dir=out_dir,
+                out_dir=issue_out_dir,
                 domains=args.domain,
-                provider=args.provider,
-                provider_config=provider_config,
-                staging=not args.production,
-                email=args.email,
+                provider=issue_provider,
+                provider_config=issue_provider_config,
+                staging=issue_staging,
+                email=issue_email,
                 key_size=args.key_size,
                 challenge_type=challenge_type,
             )
