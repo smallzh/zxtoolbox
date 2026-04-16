@@ -93,7 +93,7 @@ PRODUCTION_URL = "https://acme-v02.api.letsencrypt.org/directory"
 DEFAULT_EMAIL = ""
 DNS_POLL_INTERVAL = 5
 DNS_POLL_MAX = 60
-CHALLENGE_POLL_INTERVAL = 3
+CHALLENGE_POLL_INTERVAL = 10
 CHALLENGE_POLL_MAX = 30
 DNS_PROPAGATION_WAIT = 10
 RENEW_DAYS_BEFORE = 30
@@ -271,7 +271,7 @@ class AliyunProvider(DNSProvider):
             "SignatureMethod": "HMAC-SHA1",
             "SignatureNonce": str(uuid.uuid4()),
             "SignatureVersion": "1.0",
-            "Timestamp": _dt.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "Timestamp": _dt.now().strftime("%Y-%m-%dT%H:%M:%SZ"),
             "Version": "2015-01-09",
         }
         base_params.update(params)
@@ -903,7 +903,9 @@ class ACMEClient:
 
             # 步骤 5: 完成订单，获取证书
             logger.info("所有域名验证通过，正在完成订单...")
-            deadline = datetime.now(timezone.utc) + timedelta(seconds=90)
+            # 注意: acme 库的 poll_finalization 内部使用 offset-naive 的 datetime
+            # (datetime.datetime.now())，deadline 必须也是 offset-naive 以避免比较错误
+            deadline = datetime.now() + timedelta(seconds=90)
 
             try:
                 finalized_order = self.client.finalize_order(order, deadline)
@@ -1109,20 +1111,36 @@ class ACMEClient:
                 CHALLENGE_POLL_MAX,
             )
 
-            if status == "valid":
+            if status == messages.STATUS_VALID:
                 validated = True
+                logger.info(
+                    "  域名 %s 验证状态: %s (通过√)",
+                    domain,
+                    status,
+                )
                 break
-            elif status == "invalid":
+            elif status == messages.STATUS_INVALID:
                 # 获取错误详情
                 for chall in updated_authz.body.challenges:
                     if chall.error:
                         logger.error("  验证失败详情: %s", chall.error)
                 raise RuntimeError(f"{challenge_label} 验证失败: {domain}")
-            elif status == "pending" or status == "processing":
+            elif status in (messages.STATUS_PENDING, messages.STATUS_PROCESSING):
                 # pending: 服务器尚未开始验证
                 # processing: 服务器正在验证中，不要中断
+                logger.info(
+                    "  域名 %s 验证状态: %s (等待 %d 秒)",
+                    domain,
+                    status,
+                    CHALLENGE_POLL_INTERVAL,
+                )
                 time.sleep(CHALLENGE_POLL_INTERVAL)
             else:
+                logger.error(
+                    "  域名 %s 验证状态: %s (错误×)",
+                    domain,
+                    status,
+                )
                 raise RuntimeError(f"未知的验证状态: {status}")
 
         if not validated:
