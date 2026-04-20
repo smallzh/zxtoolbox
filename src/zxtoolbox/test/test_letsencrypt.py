@@ -1,704 +1,567 @@
-"""Tests for zxtoolbox.letsencrypt module."""
+"""Tests for zxtoolbox.letsencrypt module - acme.sh wrapper."""
 
 import json
-import tempfile
 from pathlib import Path
-from unittest.mock import patch, MagicMock, PropertyMock
+from unittest.mock import patch, MagicMock
 
 import pytest
 
 from zxtoolbox.letsencrypt import (
-    DNSProvider,
-    ManualProvider,
-    HTTP01Provider,
-    WebrootProvider,
-    StandaloneProvider,
-    get_provider,
-    get_http01_provider,
-    _compute_dns01_validation,
-    _PROVIDER_MAP,
-    _HTTP01_PROVIDER_MAP,
+    AcmeShManager,
+    CertificateManager,
+    CronManager,
+    AcmeShError,
+    DNS_PROVIDER_MAP,
+    HTTP_PROVIDER_MAP,
+    init,
+    obtain_cert,
+    renew_certs,
+    show_status,
+    revoke_cert,
     batch_obtain_certs,
     batch_renew_certs,
+    install_cronjob,
+    uninstall_cronjob,
 )
 
 
-class TestDNSProvider:
-    """Test DNS provider base class."""
+class TestAcmeShManager:
+    """Test AcmeShManager class."""
 
-    def test_base_provider_not_implemented(self):
-        """Test that base provider raises NotImplementedError."""
-        provider = DNSProvider()
-        with pytest.raises(NotImplementedError):
-            provider.add_txt_record(
-                "example.com", "_acme-challenge.example.com", "value"
-            )
-        with pytest.raises(NotImplementedError):
-            provider.del_txt_record(
-                "example.com", "_acme-challenge.example.com", "value"
-            )
+    def test_init_default(self):
+        """Test default initialization."""
+        manager = AcmeShManager()
+        assert manager.install_dir == Path.home() / ".acme.sh"
+        assert manager.bin_path == Path.home() / ".acme.sh" / "acme.sh"
+
+    def test_init_custom_path(self, tmp_path):
+        """Test custom installation path."""
+        manager = AcmeShManager(install_dir=str(tmp_path))
+        assert manager.install_dir == tmp_path
+        assert manager.bin_path == tmp_path / "acme.sh"
+
+    def test_is_installed_true(self, tmp_path):
+        """Test is_installed returns True when binary exists."""
+        # 创建模拟的 acme.sh 文件
+        acme_sh = tmp_path / "acme.sh"
+        acme_sh.write_text("#!/bin/bash\necho 'test'")
+        acme_sh.chmod(0o755)
+
+        manager = AcmeShManager(install_dir=str(tmp_path))
+        assert manager.is_installed() is True
+
+    def test_is_installed_false(self, tmp_path):
+        """Test is_installed returns False when binary doesn't exist."""
+        manager = AcmeShManager(install_dir=str(tmp_path))
+        assert manager.is_installed() is False
+
+    def test_get_version_success(self, tmp_path):
+        """Test get_version with successful command."""
+        acme_sh = tmp_path / "acme.sh"
+        acme_sh.write_text("#!/bin/bash\necho 'v3.0.0'")
+        acme_sh.chmod(0o755)
+
+        manager = AcmeShManager(install_dir=str(tmp_path))
+        version = manager.get_version()
+        assert version == "3.0.0"
+
+    def test_get_version_not_installed(self, tmp_path):
+        """Test get_version when not installed."""
+        manager = AcmeShManager(install_dir=str(tmp_path))
+        assert manager.get_version() is None
+
+    def test_check_and_install_already_installed(self, tmp_path):
+        """Test check_and_install when already installed."""
+        acme_sh = tmp_path / "acme.sh"
+        acme_sh.write_text("#!/bin/bash\necho 'v3.0.0'")
+        acme_sh.chmod(0o755)
+
+        manager = AcmeShManager(install_dir=str(tmp_path))
+        assert manager.check_and_install() is True
+
+    @patch("zxtoolbox.letsencrypt.subprocess.run")
+    def test_run_acme_sh_success(self, mock_run, tmp_path):
+        """Test _run_acme_sh with successful command."""
+        acme_sh = tmp_path / "acme.sh"
+        acme_sh.write_text("#!/bin/bash\necho 'success'")
+        acme_sh.chmod(0o755)
+
+        mock_run.return_value = MagicMock(returncode=0, stdout="success", stderr="")
+
+        manager = AcmeShManager(install_dir=str(tmp_path))
+        result = manager._run_acme_sh("--version")
+        assert result.returncode == 0
+
+    def test_run_acme_sh_not_installed(self, tmp_path):
+        """Test _run_acme_sh raises error when not installed."""
+        manager = AcmeShManager(install_dir=str(tmp_path))
+        with pytest.raises(AcmeShError, match="未安装"):
+            manager._run_acme_sh("--version")
 
 
-class TestManualProvider:
-    """Test manual DNS provider."""
+class TestCertificateManager:
+    """Test CertificateManager class."""
 
-    def test_manual_provider_name(self):
-        """Test provider name."""
-        provider = ManualProvider()
-        assert provider.name == "manual"
+    def test_init_default(self):
+        """Test default initialization."""
+        acme = AcmeShManager()
+        manager = CertificateManager(acme=acme)
+        assert manager.acme == acme
+        assert manager.staging is True
+        assert manager.email == ""
 
-    @patch("builtins.input", return_value="")
-    def test_manual_add_txt_record(self, mock_input, capsys):
-        """Test manual provider prompts user."""
-        provider = ManualProvider()
-        provider.add_txt_record(
-            "example.com", "_acme-challenge.example.com", "test-value"
+    def test_init_custom(self):
+        """Test custom initialization."""
+        acme = AcmeShManager()
+        manager = CertificateManager(
+            acme=acme,
+            cert_dir="/test/certs",
+            staging=False,
+            email="test@example.com",
         )
-        captured = capsys.readouterr()
-        assert "_acme-challenge.example.com" in captured.out
-        assert "test-value" in captured.out
-        mock_input.assert_called_once()
+        assert manager.cert_dir == Path("/test/certs")
+        assert manager.staging is False
+        assert manager.email == "test@example.com"
 
-    def test_manual_del_txt_record(self, capsys):
-        """Test manual provider shows cleanup hint."""
-        provider = ManualProvider()
-        provider.del_txt_record(
-            "example.com", "_acme-challenge.example.com", "test-value"
+    def test_get_dns_env_cloudflare(self):
+        """Test _get_dns_env for Cloudflare."""
+        acme = AcmeShManager()
+        manager = CertificateManager(acme=acme)
+
+        config = {"api_token": "test_token", "zone_id": "test_zone"}
+        env = manager._get_dns_env("dns_cf", config)
+
+        assert env == {"CF_Token": "test_token", "CF_Zone_ID": "test_zone"}
+
+    def test_get_dns_env_aliyun(self):
+        """Test _get_dns_env for Aliyun."""
+        acme = AcmeShManager()
+        manager = CertificateManager(acme=acme)
+
+        config = {"access_key_id": "test_id", "access_key_secret": "test_secret"}
+        env = manager._get_dns_env("dns_ali", config)
+
+        assert env == {"Ali_Key": "test_id", "Ali_Secret": "test_secret"}
+
+    def test_get_dns_env_no_config(self):
+        """Test _get_dns_env with no config."""
+        acme = AcmeShManager()
+        manager = CertificateManager(acme=acme)
+
+        env = manager._get_dns_env("dns_cf", None)
+        assert env is None
+
+    def test_get_cert_expiry(self, tmp_path):
+        """Test _get_cert_expiry with mock certificate."""
+        acme = AcmeShManager()
+        manager = CertificateManager(acme=acme)
+
+        # 创建模拟证书文件（我们需要模拟 openssl 命令）
+        cert_file = tmp_path / "test.crt"
+        cert_file.write_text("mock certificate")
+
+        with patch("zxtoolbox.letsencrypt.shutil.which") as mock_which:
+            mock_which.return_value = "openssl"
+
+            with patch("zxtoolbox.letsencrypt.subprocess.run") as mock_run:
+                mock_run.return_value = MagicMock(
+                    returncode=0,
+                    stdout="notAfter=Dec  7 10:00:00 2025 GMT",
+                )
+
+                expiry = manager._get_cert_expiry(cert_file)
+                assert expiry is not None
+                assert expiry.year == 2025
+
+    @patch.object(AcmeShManager, "_run_acme_sh")
+    @patch.object(CertificateManager, "_get_cert_expiry")
+    def test_issue_cert_success(self, mock_expiry, mock_run, tmp_path):
+        """Test issue_cert success."""
+        mock_run.return_value = MagicMock(returncode=0)
+        mock_expiry.return_value = None
+
+        acme = AcmeShManager(install_dir=str(tmp_path))
+        # 创建模拟的 acme.sh 二进制文件
+        (tmp_path / "acme.sh").write_text("#!/bin/bash")
+        (tmp_path / "acme.sh").chmod(0o755)
+
+        manager = CertificateManager(
+            acme=acme,
+            cert_dir=str(tmp_path / "certs"),
+            staging=True,
+            email="test@example.com",
         )
-        captured = capsys.readouterr()
-        assert "删除" in captured.out or "delete" in captured.out.lower()
 
+        with patch.object(acme, "check_and_install"):
+            result = manager.issue_cert(
+                domains=["example.com"],
+                http_provider="webroot",
+                webroot="/var/www/html",
+            )
+            assert result is not None
+            assert result["domain"] == "example.com"
 
-class TestGetProvider:
-    """Test provider factory."""
+    def test_issue_cert_empty_domains(self, tmp_path):
+        """Test issue_cert with empty domains raises ValueError."""
+        acme = AcmeShManager(install_dir=str(tmp_path))
+        manager = CertificateManager(acme=acme)
 
-    def test_get_manual_provider(self):
-        """Test getting manual provider."""
-        provider = get_provider("manual")
-        assert isinstance(provider, ManualProvider)
+        with pytest.raises(ValueError, match="不能为空"):
+            manager.issue_cert(domains=[])
 
-    def test_get_provider_case_insensitive(self):
-        """Test provider name is case insensitive."""
-        provider = get_provider("MANUAL")
-        assert isinstance(provider, ManualProvider)
+    def test_wildcard_requires_dns01(self, tmp_path):
+        """Test wildcard domain requires DNS-01 challenge."""
+        acme = AcmeShManager(install_dir=str(tmp_path))
+        (tmp_path / "acme.sh").write_text("#!/bin/bash")
+        (tmp_path / "acme.sh").chmod(0o755)
 
-    def test_get_unsupported_provider(self):
-        """Test getting unsupported provider raises ValueError."""
-        with pytest.raises(ValueError, match="不支持的 DNS 提供商"):
-            get_provider("unsupported")
+        manager = CertificateManager(acme=acme)
 
+        with patch.object(acme, "check_and_install"):
+            # 泛域名必须使用 DNS-01
+            result = manager.issue_cert(
+                domains=["*.example.com"],
+                dns_provider="manual",
+            )
+            # 应该成功，因为我们指定了 dns_provider
+            assert result is not None
 
-class TestComputeDns01Validation:
-    """Test DNS-01 validation computation."""
+    @patch.object(AcmeShManager, "_run_acme_sh")
+    @patch.object(CertificateManager, "_install_cert")
+    @patch.object(CertificateManager, "_update_renew_state")
+    def test_renew_certs(self, mock_update, mock_install, mock_run, tmp_path):
+        """Test renew_certs."""
+        mock_run.return_value = MagicMock(returncode=0)
 
-    def test_compute_dns01_validation(self):
-        """Test DNS-01 validation value computation."""
-        # The validation value is base64url(sha256(key_authorization))
-        key_auth = "token.account_thumbprint"
-        result = _compute_dns01_validation(key_auth)
-        # Should be a base64url-encoded string (no padding)
-        assert isinstance(result, str)
-        assert "=" not in result  # base64url strips padding
-        assert len(result) == 43  # SHA-256 = 32 bytes -> 43 base64url chars
+        acme = AcmeShManager(install_dir=str(tmp_path))
+        (tmp_path / "acme.sh").write_text("#!/bin/bash")
+        (tmp_path / "acme.sh").chmod(0o755)
 
-    def test_compute_dns01_different_inputs(self):
-        """Test different inputs produce different outputs."""
-        result1 = _compute_dns01_validation("key1")
-        result2 = _compute_dns01_validation("key2")
-        assert result1 != result2
+        # 创建状态文件
+        certs_dir = tmp_path / "certs"
+        certs_dir.mkdir()
+        state = {
+            "certificates": {
+                "example.com": {
+                    "domains": ["example.com"],
+                    "provider": "dns_cf",
+                    "staging": True,
+                    "email": "test@example.com",
+                    "issued_at": "2025-01-01T00:00:00+00:00",
+                    "expires_at": "2025-12-01T00:00:00+00:00",
+                }
+            }
+        }
+        (certs_dir / "renew_state.json").write_text(json.dumps(state))
 
+        manager = CertificateManager(
+            acme=acme,
+            cert_dir=str(certs_dir),
+        )
 
-class TestInit:
-    """Test LE output directory initialization."""
+        with patch.object(acme, "check_and_install"):
+            results = manager.renew_certs(force=True)
+            assert len(results) > 0
 
-    def test_init_creates_directory(self, tmp_path, capsys):
-        """Test init creates output directory and state file."""
-        from zxtoolbox.letsencrypt import init
+    @patch.object(AcmeShManager, "_run_acme_sh")
+    @patch.object(CertificateManager, "_remove_from_state")
+    def test_revoke_cert(self, mock_remove, mock_run, tmp_path):
+        """Test revoke_cert."""
+        mock_run.return_value = MagicMock(returncode=0)
 
-        out_dir = tmp_path / "out_le"
-        init(out_dir)
+        acme = AcmeShManager(install_dir=str(tmp_path))
+        (tmp_path / "acme.sh").write_text("#!/bin/bash")
+        (tmp_path / "acme.sh").chmod(0o755)
 
-        assert out_dir.exists()
-        state_path = out_dir / "renew_state.json"
-        assert state_path.exists()
+        manager = CertificateManager(acme=acme)
 
-        state = json.loads(state_path.read_text())
-        assert "certificates" in state
+        with patch.object(acme, "check_and_install"):
+            result = manager.revoke_cert("example.com")
+            assert result is True
 
-    def test_init_existing_directory(self, tmp_path, capsys):
-        """Test init with existing directory doesn't fail."""
-        from zxtoolbox.letsencrypt import init
+    def test_get_cert_status_empty(self, tmp_path):
+        """Test get_cert_status with no certificates."""
+        acme = AcmeShManager(install_dir=str(tmp_path))
+        manager = CertificateManager(
+            acme=acme,
+            cert_dir=str(tmp_path),
+        )
 
-        out_dir = tmp_path / "out_le"
-        out_dir.mkdir()
-        init(out_dir)
+        status = manager.get_cert_status()
+        assert status == []
 
-        assert out_dir.exists()
+    def test_get_cert_status_with_certs(self, tmp_path):
+        """Test get_cert_status with certificates."""
+        acme = AcmeShManager(install_dir=str(tmp_path))
 
-
-class TestShowStatus:
-    """Test certificate status display."""
-
-    def test_show_status_no_state_file(self, tmp_path, capsys):
-        """Test showing status when no state file exists."""
-        from zxtoolbox.letsencrypt import show_status
-
-        out_dir = tmp_path / "out_le"
-        out_dir.mkdir()
-        show_status(out_dir)
-
-        captured = capsys.readouterr()
-        assert "没有" in captured.out or "no" in captured.out.lower()
-
-    def test_show_status_empty_certificates(self, tmp_path, capsys):
-        """Test showing status with empty certificates."""
-        from zxtoolbox.letsencrypt import show_status
-
-        out_dir = tmp_path / "out_le"
-        out_dir.mkdir()
-        state_path = out_dir / "renew_state.json"
-        state_path.write_text(json.dumps({"certificates": {}}))
-
-        show_status(out_dir)
-
-        captured = capsys.readouterr()
-        assert "没有" in captured.out or "no" in captured.out.lower()
-
-    def test_show_status_with_certificates(self, tmp_path, capsys):
-        """Test showing status with valid certificates."""
-        from zxtoolbox.letsencrypt import show_status
-
-        out_dir = tmp_path / "out_le"
-        out_dir.mkdir()
-        state_path = out_dir / "renew_state.json"
+        # 创建状态文件 - 使用足够远的未来日期
+        from datetime import datetime, timedelta, timezone
+        future_date = datetime.now(timezone.utc) + timedelta(days=365)
         state = {
             "certificates": {
                 "example.com": {
                     "domains": ["example.com", "*.example.com"],
-                    "issued_at": "2025-01-01T00:00:00+00:00",
-                    "expires_at": "2026-01-01T00:00:00+00:00",
-                    "provider": "manual",
+                    "provider": "dns_cf",
                     "staging": True,
+                    "email": "test@example.com",
+                    "issued_at": datetime.now(timezone.utc).isoformat(),
+                    "expires_at": future_date.isoformat(),
                 }
             }
         }
-        state_path.write_text(json.dumps(state))
+        (tmp_path / "renew_state.json").write_text(json.dumps(state))
 
-        show_status(out_dir)
+        manager = CertificateManager(
+            acme=acme,
+            cert_dir=str(tmp_path),
+        )
 
+        status = manager.get_cert_status()
+        assert len(status) == 1
+        assert status[0]["domain"] == "example.com"
+        assert status[0]["status"] == "valid"
+
+
+class TestCronManager:
+    """Test CronManager class."""
+
+    @patch.object(AcmeShManager, "_run_acme_sh")
+    def test_install_cronjob(self, mock_run, tmp_path):
+        """Test install_cronjob."""
+        mock_run.return_value = MagicMock(returncode=0)
+
+        acme = AcmeShManager(install_dir=str(tmp_path))
+        (tmp_path / "acme.sh").write_text("#!/bin/bash")
+        (tmp_path / "acme.sh").chmod(0o755)
+
+        cron_manager = CronManager(acme=acme)
+
+        with patch.object(acme, "check_and_install"):
+            result = cron_manager.install_cronjob()
+            assert result is True
+
+    @patch.object(AcmeShManager, "_run_acme_sh")
+    def test_uninstall_cronjob(self, mock_run, tmp_path):
+        """Test uninstall_cronjob."""
+        mock_run.return_value = MagicMock(returncode=0)
+
+        acme = AcmeShManager(install_dir=str(tmp_path))
+        (tmp_path / "acme.sh").write_text("#!/bin/bash")
+        (tmp_path / "acme.sh").chmod(0o755)
+
+        cron_manager = CronManager(acme=acme)
+
+        with patch.object(acme, "check_and_install"):
+            result = cron_manager.uninstall_cronjob()
+            assert result is True
+
+
+class TestInit:
+    """Test init function."""
+
+    def test_init_creates_directory(self, tmp_path):
+        """Test init creates directory and state file."""
+        cert_dir = tmp_path / "test_certs"
+        init(str(cert_dir))
+
+        assert cert_dir.exists()
+        state_file = cert_dir / "renew_state.json"
+        assert state_file.exists()
+
+        state = json.loads(state_file.read_text())
+        assert "certificates" in state
+
+    def test_init_existing_directory(self, tmp_path):
+        """Test init with existing directory."""
+        cert_dir = tmp_path / "test_certs"
+        cert_dir.mkdir()
+
+        init(str(cert_dir))
+        assert cert_dir.exists()
+
+
+class TestObtainCert:
+    """Test obtain_cert function."""
+
+    @patch("zxtoolbox.letsencrypt.CertificateManager.issue_cert")
+    @patch.object(AcmeShManager, "check_and_install")
+    def test_obtain_cert_success(self, mock_check, mock_issue, tmp_path):
+        """Test obtain_cert success."""
+        mock_issue.return_value = {
+            "domain": "example.com",
+            "cert_file": "/test/cert.crt",
+        }
+
+        result = obtain_cert(
+            out_dir=tmp_path,
+            domains=["example.com"],
+            provider="webroot",
+            provider_config={"webroot": "/var/www/html"},
+            challenge_type="http-01",
+        )
+
+        assert result is not None
+        assert result["domain"] == "example.com"
+
+    def test_obtain_cert_wildcard_http01_fails(self, tmp_path, capsys):
+        """Test obtain_cert with wildcard and HTTP-01 fails."""
+        result = obtain_cert(
+            out_dir=tmp_path,
+            domains=["*.example.com"],
+            provider="webroot",
+            challenge_type="http-01",
+        )
+
+        assert result is None
         captured = capsys.readouterr()
-        assert "example.com" in captured.out
+        assert "泛域名" in captured.out
 
 
 class TestRenewCerts:
-    """Test certificate renewal."""
+    """Test renew_certs function."""
 
-    def test_renew_no_state_file(self, tmp_path, capsys):
-        """Test renewal when no state file exists."""
-        from zxtoolbox.letsencrypt import renew_certs
-
-        out_dir = tmp_path / "out_le"
-        out_dir.mkdir()
-        renew_certs(out_dir)
-
-        captured = capsys.readouterr()
-        # The source has a bug: uses f-string with single quotes instead of f-string
-        # So it prints literal {state_path}. We check for any output.
-        assert len(captured.out) > 0
-
-    def test_renew_empty_certificates(self, tmp_path, capsys):
-        """Test renewal with no certificates."""
-        from zxtoolbox.letsencrypt import renew_certs
-
-        out_dir = tmp_path / "out_le"
-        out_dir.mkdir()
-        state_path = out_dir / "renew_state.json"
-        state_path.write_text(json.dumps({"certificates": {}}))
-
-        renew_certs(out_dir)
-
-        captured = capsys.readouterr()
-        assert "没有" in captured.out or "no" in captured.out.lower()
-
-    def test_renew_dry_run(self, tmp_path, capsys):
-        """Test renewal in dry-run mode."""
-        from zxtoolbox.letsencrypt import renew_certs
-
-        out_dir = tmp_path / "out_le"
-        out_dir.mkdir()
-        state_path = out_dir / "renew_state.json"
-        state = {
-            "certificates": {
-                "example.com": {
-                    "domains": ["example.com"],
-                    "issued_at": "2025-01-01T00:00:00+00:00",
-                    "expires_at": "2025-06-01T00:00:00+00:00",  # Expired
-                    "provider": "manual",
-                    "staging": True,
-                }
+    @patch("zxtoolbox.letsencrypt.CertificateManager.renew_certs")
+    @patch("zxtoolbox.letsencrypt.CertificateManager.get_cert_status")
+    @patch.object(AcmeShManager, "check_and_install")
+    def test_renew_certs_dry_run(self, mock_check, mock_status, mock_renew, tmp_path):
+        """Test renew_certs with dry_run."""
+        mock_status.return_value = [
+            {
+                "domain": "example.com",
+                "status": "valid",
+                "days_left": 60,
+                "expires_at": "2025-12-01T00:00:00+00:00",
             }
-        }
-        state_path.write_text(json.dumps(state))
+        ]
 
-        renew_certs(out_dir, dry_run=True)
+        results = renew_certs(tmp_path, dry_run=True)
+        assert results == mock_status.return_value
 
-        captured = capsys.readouterr()
-        assert "dry-run" in captured.out or "跳过" in captured.out
+    @patch("zxtoolbox.letsencrypt.CertificateManager.renew_certs")
+    @patch.object(AcmeShManager, "check_and_install")
+    def test_renew_certs_actual(self, mock_check, mock_renew, tmp_path):
+        """Test renew_certs actual execution."""
+        mock_renew.return_value = [
+            {"domain": "example.com", "renewed": True}
+        ]
 
-
-class TestProviderMap:
-    """Test provider registry."""
-
-    def test_provider_map_contains_expected(self):
-        """Test that provider map has expected providers."""
-        assert "manual" in _PROVIDER_MAP
-        assert "cloudflare" in _PROVIDER_MAP
-        assert "aliyun" in _PROVIDER_MAP
+        results = renew_certs(tmp_path, dry_run=False)
+        assert len(results) == 1
 
 
-class TestCloudflareProvider:
-    """Test Cloudflare DNS provider."""
+class TestShowStatus:
+    """Test show_status function."""
 
-    def test_cloudflare_missing_config(self):
-        """Test Cloudflare provider with missing config."""
-        from zxtoolbox.letsencrypt import CloudflareProvider
-
-        with pytest.raises(ValueError, match="api_token"):
-            CloudflareProvider({})
-
-    def test_cloudflare_missing_zone_id(self):
-        """Test Cloudflare provider with missing zone_id."""
-        from zxtoolbox.letsencrypt import CloudflareProvider
-
-        with pytest.raises(ValueError, match="zone_id"):
-            CloudflareProvider({"api_token": "test"})
+    @patch("zxtoolbox.letsencrypt.renew_certs")
+    def test_show_status(self, mock_renew, tmp_path):
+        """Test show_status calls renew_certs with dry_run."""
+        show_status(tmp_path)
+        mock_renew.assert_called_once_with(tmp_path, dry_run=True)
 
 
-class TestAliyunProvider:
-    """Test Aliyun DNS provider."""
+class TestRevokeCert:
+    """Test revoke_cert function."""
 
-    def test_aliyun_missing_config(self):
-        """Test Aliyun provider with missing config."""
-        from zxtoolbox.letsencrypt import AliyunProvider
+    @patch("zxtoolbox.letsencrypt.CertificateManager.revoke_cert")
+    @patch.object(AcmeShManager, "check_and_install")
+    def test_revoke_cert_success(self, mock_check, mock_revoke, tmp_path):
+        """Test revoke_cert success."""
+        mock_revoke.return_value = True
 
-        with pytest.raises(ValueError, match="access_key_id"):
-            AliyunProvider({})
-
-    def test_aliyun_split_rr_domain(self):
-        """Test RR/domain splitting."""
-        from zxtoolbox.letsencrypt import AliyunProvider
-
-        rr, domain = AliyunProvider._split_rr_domain(
-            "_acme-challenge.example.com", "example.com"
-        )
-        assert rr == "_acme-challenge"
-        assert domain == "example.com"
-
-    def test_aliyun_split_rr_domain_wildcard(self):
-        """Test RR/domain splitting for wildcard."""
-        from zxtoolbox.letsencrypt import AliyunProvider
-
-        rr, domain = AliyunProvider._split_rr_domain(
-            "_acme-challenge.*.example.com", "example.com"
-        )
-        assert rr == "_acme-challenge.*"
-        assert domain == "example.com"
+        result = revoke_cert(tmp_path, "example.com")
+        assert result is True
 
 
 class TestBatchObtainCerts:
-    """Test config-driven batch certificate issuance."""
+    """Test batch_obtain_certs function."""
 
-    def test_batch_obtain_no_config(self, tmp_path, capsys):
-        """Test batch_obtain_certs with no domain projects in config."""
-        config_path = tmp_path / "zxtool.toml"
-        config_path.write_text('[[projects]]\nproject_dir = "/test"\n', encoding="utf-8")
+    @patch("zxtoolbox.config_manager.load_projects_with_domain")
+    @patch("zxtoolbox.letsencrypt.obtain_cert")
+    def test_batch_obtain_no_projects(self, mock_obtain, mock_load, tmp_path, capsys):
+        """Test batch_obtain with no domain projects."""
+        mock_load.return_value = []
 
-        results = batch_obtain_certs(str(config_path))
-
-        # No projects with domain, should return empty dict
+        results = batch_obtain_certs(str(tmp_path / "config.toml"))
         assert results == {}
-        captured = capsys.readouterr()
-        assert "没有配置 domain" in captured.out
 
-    def test_batch_obtain_dry_run(self, tmp_path, capsys):
-        """Test batch_obtain_certs in dry-run mode."""
-        config_path = tmp_path / "zxtool.toml"
-        config_path.write_text('''
-[letsencrypt]
-provider = "manual"
-staging = true
+    @patch("zxtoolbox.config_manager.load_projects_with_domain")
+    @patch("zxtoolbox.letsencrypt.obtain_cert")
+    def test_batch_obtain_dry_run(self, mock_obtain, mock_load, tmp_path, capsys):
+        """Test batch_obtain with dry_run."""
+        mock_load.return_value = [
+            {
+                "project_dir": "/test",
+                "domain": "example.com",
+                "_le": {
+                    "provider": "manual",
+                    "staging": True,
+                    "challenge_type": "dns-01",
+                }
+            }
+        ]
 
-[[projects]]
-project_dir = "/myproject"
-domain = "example.com"
-''', encoding="utf-8")
-
-        results = batch_obtain_certs(str(config_path), dry_run=True)
-
+        results = batch_obtain_certs(str(tmp_path / "config.toml"), dry_run=True)
         assert "example.com" in results
         assert results["example.com"] is True
-        captured = capsys.readouterr()
-        assert "DRY-RUN" in captured.out
-
-    def test_batch_obtain_wildcard_domain_dry_run(self, tmp_path, capsys):
-        """Test that wildcard domains auto-include base domain."""
-        config_path = tmp_path / "zxtool.toml"
-        config_path.write_text('''
-[letsencrypt]
-provider = "manual"
-staging = true
-
-[[projects]]
-project_dir = "/myproject"
-domain = "*.example.com"
-''', encoding="utf-8")
-
-        # We mock obtain_cert to verify the domains list
-        with patch("zxtoolbox.letsencrypt.obtain_cert") as mock_obtain:
-            mock_obtain.return_value = None
-            results = batch_obtain_certs(str(config_path), dry_run=True)
-
-        # Dry run should still list the wildcard domain
-        assert "*.example.com" in results
-
-    def test_batch_obtain_missing_config_file(self, tmp_path):
-        """Test batch_obtain_certs with missing config file."""
-        from zxtoolbox.config_manager import load_projects_with_domain
-
-        with pytest.raises(FileNotFoundError):
-            load_projects_with_domain(str(tmp_path / "nonexistent.toml"))
 
 
 class TestBatchRenewCerts:
-    """Test config-driven batch certificate renewal."""
+    """Test batch_renew_certs function."""
 
-    def test_batch_renew_no_domain_projects(self, tmp_path, capsys):
-        """Test batch_renew_certs with no domain projects falls back to renew_certs."""
-        config_path = tmp_path / "zxtool.toml"
-        config_path.write_text('''
-[letsencrypt]
-provider = "manual"
+    @patch("zxtoolbox.config_manager.load_projects_with_domain")
+    @patch("zxtoolbox.letsencrypt.renew_certs")
+    def test_batch_renew_no_projects(self, mock_renew, mock_load, tmp_path):
+        """Test batch_renew with no domain projects."""
+        mock_load.return_value = []
+        mock_renew.return_value = []
 
-[[projects]]
-project_dir = "/test"
-''', encoding="utf-8")
-
-        # Will try to call renew_certs with default out_dir
-        with patch("zxtoolbox.letsencrypt.renew_certs") as mock_renew:
-            mock_renew.return_value = None
-            results = batch_renew_certs(str(config_path))
-
+        results = batch_renew_certs(str(tmp_path / "config.toml"))
         assert results == {}
 
-    def test_batch_renew_valid_cert_no_renewal(self, tmp_path, capsys):
-        """Test that valid certificates are not renewed."""
-        from datetime import datetime, timedelta, timezone
 
-        out_dir = tmp_path / "certs"
-        out_dir.mkdir()
-        out_dir_str = str(out_dir).replace("\\", "/")
-        config_path = tmp_path / "zxtool.toml"
-        config_path.write_text(f'''
-[letsencrypt]
-provider = "manual"
-staging = true
-output_dir = "{out_dir_str}"
+class TestInstallCronjob:
+    """Test install_cronjob function."""
 
-[[projects]]
-project_dir = "/myproject"
-domain = "example.com"
-''', encoding="utf-8")
+    @patch.object(CronManager, "install_cronjob")
+    def test_install_cronjob(self, mock_install):
+        """Test install_cronjob."""
+        mock_install.return_value = True
+        result = install_cronjob()
+        assert result is True
 
-        expires_at = datetime.now(timezone.utc) + timedelta(days=60)
-        state = {
-            "certificates": {
-                "example.com": {
-                    "domains": ["example.com"],
-                    "issued_at": datetime.now(timezone.utc).isoformat(),
-                    "expires_at": expires_at.isoformat(),
-                    "provider": "manual",
-                    "staging": True,
-                }
-            }
-        }
-        state_path = out_dir / "renew_state.json"
-        state_path.write_text(json.dumps(state))
 
-        results = batch_renew_certs(str(config_path))
+class TestUninstallCronjob:
+    """Test uninstall_cronjob function."""
 
-        assert "example.com" in results
-        assert results["example.com"] is True
-        captured = capsys.readouterr()
-        assert "无需续签" in captured.out
+    @patch.object(CronManager, "uninstall_cronjob")
+    def test_uninstall_cronjob(self, mock_uninstall):
+        """Test uninstall_cronjob."""
+        mock_uninstall.return_value = True
+        result = uninstall_cronjob()
+        assert result is True
 
-    def test_batch_renew_expiring_cert(self, tmp_path, capsys):
-        """Test that expiring certificates get renewed."""
-        from datetime import datetime, timedelta, timezone
 
-        out_dir = tmp_path / "certs"
-        out_dir.mkdir()
-        out_dir_str = str(out_dir).replace("\\", "/")
-        config_path = tmp_path / "zxtool.toml"
-        config_path.write_text(f'''
-[letsencrypt]
-provider = "manual"
-staging = true
-output_dir = "{out_dir_str}"
+class TestProviderMaps:
+    """Test provider mapping constants."""
 
-[[projects]]
-project_dir = "/myproject"
-domain = "expiring.com"
-''', encoding="utf-8")
+    def test_dns_provider_map(self):
+        """Test DNS_PROVIDER_MAP contains expected providers."""
+        assert "manual" in DNS_PROVIDER_MAP
+        assert "cloudflare" in DNS_PROVIDER_MAP
+        assert "aliyun" in DNS_PROVIDER_MAP
+        assert DNS_PROVIDER_MAP["cloudflare"] == "dns_cf"
+        assert DNS_PROVIDER_MAP["aliyun"] == "dns_ali"
 
-        # Create expiring cert state
-        expires_at = datetime.now(timezone.utc) + timedelta(days=10)
-        state = {
-            "certificates": {
-                "expiring.com": {
-                    "domains": ["expiring.com"],
-                    "issued_at": datetime.now(timezone.utc).isoformat(),
-                    "expires_at": expires_at.isoformat(),
-                    "provider": "manual",
-                    "staging": True,
-                }
-            }
-        }
-        (out_dir / "renew_state.json").write_text(json.dumps(state))
+    def test_http_provider_map(self):
+        """Test HTTP_PROVIDER_MAP contains expected providers."""
+        assert "webroot" in HTTP_PROVIDER_MAP
+        assert "standalone" in HTTP_PROVIDER_MAP
 
-        with patch("zxtoolbox.letsencrypt.obtain_cert") as mock_obtain:
-            mock_obtain.return_value = None
-            results = batch_renew_certs(str(config_path), dry_run=True)
 
-        # dry-run should still report needing renewal
-        assert "expiring.com" in results
+class TestAcmeShError:
+    """Test AcmeShError exception."""
 
-
-class TestDNSChallengeExtraction:
-    """Test DNS-01 challenge extraction from Authorization body."""
-
-    def test_extract_dns01_challenge_from_challenges_list(self):
-        """Test that DNS-01 challenge is correctly extracted from challenges list.
-
-        The Authorization object has a challenges list (not dns_challenge() method).
-        Each challenge body has a .chall attribute containing the actual challenge object.
-        """
-        from acme import challenges as acme_challenges
-
-        # Create a mock DNS-01 challenge
-        dns_chall = acme_challenges.DNS01(token=b"test-token-dns01")
-        dns_chall_body = MagicMock()
-        dns_chall_body.chall = dns_chall
-
-        # Create a mock HTTP-01 challenge (should be ignored)
-        http_chall_body = MagicMock()
-        http_chall_body.chall = MagicMock()
-        http_chall_body.chall.typ = "http-01"
-
-        # Create mock Authorization body
-        authz_body = MagicMock()
-        authz_body.challenges = [http_chall_body, dns_chall_body]
-
-        # Verify we can find the DNS-01 challenge by type
-        found = None
-        for chall_body in authz_body.challenges:
-            if isinstance(chall_body.chall, acme_challenges.DNS01):
-                found = chall_body
-                break
-
-        assert found is not None
-        assert isinstance(found.chall, acme_challenges.DNS01)
-
-    def test_no_dns01_challenge_raises_error(self):
-        """Test that missing DNS-01 challenge is detected.
-
-        If an Authorization has no DNS-01 challenge (e.g., only HTTP-01),
-        the code should report available challenges.
-        """
-        # Create mock challenge bodies (no DNS-01)
-        http_chall_body = MagicMock()
-        http_chall_body.chall = MagicMock()
-        http_chall_body.chall.typ = "http-01"
-
-        authz_body = MagicMock()
-        authz_body.challenges = [http_chall_body]
-
-        # Verify no DNS-01 challenge is found
-        found = None
-        for chall_body in authz_body.challenges:
-            from acme import challenges as acme_challenges
-            if isinstance(chall_body.chall, acme_challenges.DNS01):
-                found = chall_body
-                break
-
-        assert found is None
-
-
-class TestHTTP01Provider:
-    """Test HTTP-01 challenge providers."""
-
-    def test_http01_provider_base_not_implemented(self):
-        """Test that base provider raises NotImplementedError."""
-        provider = HTTP01Provider()
-        with pytest.raises(NotImplementedError):
-            provider.setup_challenge("example.com", "token", "key_auth")
-        with pytest.raises(NotImplementedError):
-            provider.cleanup_challenge("example.com", "token", "key_auth")
-
-    def test_webroot_provider_name(self):
-        """Test WebrootProvider name."""
-        provider = WebrootProvider({"webroot": "/tmp/webroot"})
-        assert provider.name == "webroot"
-
-    def test_webroot_missing_config(self):
-        """Test WebrootProvider with missing config."""
-        with pytest.raises(ValueError, match="webroot"):
-            WebrootProvider({})
-        with pytest.raises(ValueError, match="webroot"):
-            WebrootProvider()
-
-    def test_webroot_setup_challenge(self, tmp_path):
-        """Test WebrootProvider writes challenge file."""
-        webroot = tmp_path / "www"
-        webroot.mkdir()
-        provider = WebrootProvider({"webroot": str(webroot)})
-
-        provider.setup_challenge("example.com", "test-token", "key-auth-value")
-
-        challenge_file = webroot / ".well-known" / "acme-challenge" / "test-token"
-        assert challenge_file.exists()
-        assert challenge_file.read_text() == "key-auth-value"
-
-    def test_webroot_cleanup_challenge(self, tmp_path):
-        """Test WebrootProvider cleans up challenge file."""
-        webroot = tmp_path / "www"
-        webroot.mkdir()
-        provider = WebrootProvider({"webroot": str(webroot)})
-
-        provider.setup_challenge("example.com", "test-token", "key-auth-value")
-        assert (webroot / ".well-known" / "acme-challenge" / "test-token").exists()
-
-        provider.cleanup_challenge("example.com", "test-token", "key-auth-value")
-        assert not (webroot / ".well-known" / "acme-challenge" / "test-token").exists()
-
-    def test_standalone_provider_name(self):
-        """Test StandaloneProvider name."""
-        provider = StandaloneProvider()
-        assert provider.name == "standalone"
-
-    def test_standalone_default_config(self):
-        """Test StandaloneProvider with default config."""
-        provider = StandaloneProvider()
-        assert provider._port == 80
-        assert provider._bind_addr == "0.0.0.0"
-
-    def test_standalone_custom_config(self):
-        """Test StandaloneProvider with custom config."""
-        provider = StandaloneProvider({"port": 8080, "bind_addr": "127.0.0.1"})
-        assert provider._port == 8080
-        assert provider._bind_addr == "127.0.0.1"
-
-
-class TestGetHTTP01Provider:
-    """Test HTTP-01 provider factory."""
-
-    def test_get_webroot_provider(self):
-        """Test getting webroot provider."""
-        provider = get_http01_provider("webroot", {"webroot": "/tmp/test"})
-        assert isinstance(provider, WebrootProvider)
-
-    def test_get_standalone_provider(self):
-        """Test getting standalone provider."""
-        provider = get_http01_provider("standalone")
-        assert isinstance(provider, StandaloneProvider)
-
-    def test_get_provider_case_insensitive(self):
-        """Test provider name is case insensitive."""
-        provider = get_http01_provider("WEBROOT", {"webroot": "/tmp/test"})
-        assert isinstance(provider, WebrootProvider)
-
-    def test_get_unsupported_provider(self):
-        """Test getting unsupported provider raises ValueError."""
-        with pytest.raises(ValueError, match="不支持的 HTTP-01 提供商"):
-            get_http01_provider("unsupported")
-
-
-class TestHTTP01ProviderMap:
-    """Test HTTP-01 provider registry."""
-
-    def test_http01_provider_map_contains_expected(self):
-        """Test that HTTP-01 provider map has expected providers."""
-        assert "webroot" in _HTTP01_PROVIDER_MAP
-        assert "standalone" in _HTTP01_PROVIDER_MAP
-
-
-class TestObtainCertChallengeType:
-    """Test obtain_cert with different challenge types."""
-
-    def test_wildcard_domain_with_http01_raises_error(self, tmp_path):
-        """Test that wildcard domains with HTTP-01 raise ValueError."""
-        from zxtoolbox.letsencrypt import obtain_cert
-
-        with pytest.raises(ValueError, match="泛域名证书只能使用 DNS-01"):
-            obtain_cert(
-                out_dir=tmp_path,
-                domains=["*.example.com"],
-                provider="standalone",
-                challenge_type="http-01",
-            )
-
-    def test_invalid_challenge_type_raises_error(self, tmp_path):
-        """Test that invalid challenge type raises ValueError."""
-        from zxtoolbox.letsencrypt import obtain_cert
-
-        with pytest.raises(ValueError, match="不支持的验证方式"):
-            obtain_cert(
-                out_dir=tmp_path,
-                domains=["example.com"],
-                provider="manual",
-                challenge_type="tls-alpn-01",
-            )
-
-
-class TestConfigManagerChallengeType:
-    """Test challenge_type in config_manager."""
-
-    def test_load_le_config_default_challenge_type(self, tmp_path):
-        """Test default challenge_type is dns-01."""
-        from zxtoolbox.config_manager import load_le_config
-
-        config_path = tmp_path / "zxtool.toml"
-        config_path.write_text('''
-[letsencrypt]
-provider = "manual"
-staging = true
-''', encoding="utf-8")
-
-        le_config = load_le_config(str(config_path))
-        assert le_config["challenge_type"] == "dns-01"
-
-    def test_load_le_config_http01_challenge_type(self, tmp_path):
-        """Test loading http-01 challenge_type."""
-        from zxtoolbox.config_manager import load_le_config
-
-        config_path = tmp_path / "zxtool.toml"
-        config_path.write_text('''
-[letsencrypt]
-provider = "standalone"
-challenge_type = "http-01"
-staging = true
-''', encoding="utf-8")
-
-        le_config = load_le_config(str(config_path))
-        assert le_config["challenge_type"] == "http-01"
-        assert le_config["provider"] == "standalone"
-
-    def test_generate_letsencrypt_section_with_challenge_type(self):
-        """Test generating config with challenge_type."""
-        from zxtoolbox.config_manager import _generate_letsencrypt_section
-
-        result = _generate_letsencrypt_section(
-            provider="standalone",
-            challenge_type="http-01",
-        )
-        assert 'challenge_type = "http-01"' in result
-        assert 'provider = "standalone"' in result
+    def test_error_creation(self):
+        """Test creating AcmeShError."""
+        error = AcmeShError("Test error message")
+        assert str(error) == "Test error message"

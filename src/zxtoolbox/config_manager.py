@@ -285,12 +285,48 @@ def _generate_logging_section(
     return "\n".join(lines)
 
 
+def _generate_feishu_section(
+    app_id: str = "",
+    app_secret: str = "",
+) -> str:
+    """生成飞书客户端配置部分。
+
+    Args:
+        app_id: 飞书应用 ID。
+        app_secret: 飞书应用密钥。
+
+    Returns:
+        TOML 格式的飞书配置字符串。
+    """
+    lines = [
+        "# ============================================",
+        "# 飞书客户端配置",
+        "# ============================================",
+        "",
+        "[feishu]",
+    ]
+
+    if app_id:
+        lines.append(f"app_id = {_escape_toml_string(app_id)}")
+    else:
+        lines.append(f"# app_id = {_escape_toml_string('cli_xxxxxxxxxxxxx')}")
+
+    if app_secret:
+        lines.append(f"app_secret = {_escape_toml_string(app_secret)}")
+    else:
+        lines.append(f"# app_secret = {_escape_toml_string('xxxxxxxxxxxxxxxxxxxx')}")
+
+    lines.append("")
+    return "\n".join(lines)
+
+
 def generate_config_content(
     mkdocs_projects: list[dict] | None = None,
     git_users: list[dict] | None = None,
     letsencrypt_config: dict[str, Any] | None = None,
     nginx_config: dict[str, Any] | None = None,
     logging_config: dict[str, Any] | None = None,
+    feishu_config: dict[str, Any] | None = None,
 ) -> str:
     """生成完整的 zxtool.toml 配置文件内容。
 
@@ -310,6 +346,9 @@ def generate_config_content(
         logging_config: 日志配置字典，可包含：
             - log_dir: 日志文件存放目录
             - log_level: 日志级别（默认 INFO）
+        feishu_config: 飞书客户端配置字典，可包含：
+            - app_id: 飞书应用 ID
+            - app_secret: 飞书应用密钥
 
     Returns:
         完整的 TOML 配置文件内容。
@@ -355,6 +394,14 @@ def generate_config_content(
         )
         parts.append(logging_section)
 
+    # 飞书客户端配置
+    if feishu_config:
+        feishu_section = _generate_feishu_section(
+            app_id=feishu_config.get("app_id", ""),
+            app_secret=feishu_config.get("app_secret", ""),
+        )
+        parts.append(feishu_section)
+
     # 项目配置
     projects_section = _generate_projects_section(mkdocs_projects or [])
     if projects_section:
@@ -366,7 +413,7 @@ def generate_config_content(
         parts.append(git_section)
 
     # 如果没有任何配置，添加注释说明
-    if not mkdocs_projects and not git_users and not letsencrypt_config and not nginx_config and not logging_config:
+    if not mkdocs_projects and not git_users and not letsencrypt_config and not nginx_config and not logging_config and not feishu_config:
         parts.append("# 暂无配置项")
         parts.append("# 运行 'zxtool config init' 交互式生成配置")
         parts.append("")
@@ -381,6 +428,7 @@ def write_config(
     letsencrypt_config: dict[str, Any] | None = None,
     nginx_config: dict[str, Any] | None = None,
     logging_config: dict[str, Any] | None = None,
+    feishu_config: dict[str, Any] | None = None,
     force: bool = False,
 ) -> bool:
     """写入 zxtool.toml 配置文件。
@@ -396,6 +444,9 @@ def write_config(
         logging_config: 日志配置字典，可包含：
             - log_dir: 日志文件存放目录
             - log_level: 日志级别（默认 INFO）
+        feishu_config: 飞书客户端配置字典，可包含：
+            - app_id: 飞书应用 ID
+            - app_secret: 飞书应用密钥
         force: 是否覆盖已存在的文件。
 
     Returns:
@@ -422,6 +473,7 @@ def write_config(
         letsencrypt_config=letsencrypt_config,
         nginx_config=nginx_config,
         logging_config=logging_config,
+        feishu_config=feishu_config,
     )
 
     # 写入文件
@@ -551,6 +603,30 @@ def load_logging_config(config_path: str | Path | None = None) -> dict[str, Any]
     return {
         "log_dir": logging_sec.get("log_dir", str(Path.home() / ".config" / "zxtool_logs")),
         "log_level": logging_sec.get("log_level", "INFO"),
+    }
+
+
+def load_feishu_config(config_path: str | Path | None = None) -> dict[str, Any]:
+    """加载飞书客户端配置。
+
+    从 zxtool.toml 的 [feishu] 节点读取配置。
+
+    Args:
+        config_path: 配置文件路径，默认为 ~/.config/zxtool.toml。
+
+    Returns:
+        飞书配置字典，包含:
+            - app_id: 飞书应用 ID (默认空字符串)
+            - app_secret: 飞书应用密钥 (默认空字符串)
+
+    Raises:
+        FileNotFoundError: 配置文件不存在时。
+    """
+    data = load_config(config_path)
+    feishu = data.get("feishu", {})
+    return {
+        "app_id": feishu.get("app_id", ""),
+        "app_secret": feishu.get("app_secret", ""),
     }
 
 
@@ -802,6 +878,35 @@ def interactive_init(
             print("\n")
             logging_config = None
 
+    # --- 飞书客户端配置 ---
+    feishu_config = None
+    print("\n--- 飞书客户端配置 ---")
+    try:
+        setup_feishu = input("配置飞书客户端? (y/N): ").strip().lower()
+    except (EOFError, KeyboardInterrupt):
+        print("\n")
+        setup_feishu = "n"
+
+    if setup_feishu in ("y", "yes"):
+        feishu_config = {}
+        try:
+            app_id = input("  飞书 App ID (如 cli_xxxxxxxxxxxxx): ").strip()
+            if app_id:
+                feishu_config["app_id"] = app_id
+
+            app_secret = input("  飞书 App Secret: ").strip()
+            if app_secret:
+                feishu_config["app_secret"] = app_secret
+
+            if feishu_config.get("app_id") and feishu_config.get("app_secret"):
+                print("  [OK] 飞书配置已添加")
+            else:
+                print("  [WARN] App ID 和 App Secret 不能为空，跳过飞书配置")
+                feishu_config = None
+        except (EOFError, KeyboardInterrupt):
+            print("\n")
+            feishu_config = None
+
     # --- MkDocs / 项目配置 ---
     print("\n--- 项目配置 ---")
     print("添加项目（可配置 MkDocs 构建和域名，留空跳过）")
@@ -914,6 +1019,13 @@ def interactive_init(
     else:
         print("\n日志: 未配置")
 
+    if feishu_config:
+        print(f"\n飞书客户端:")
+        print(f"  App ID:     {feishu_config.get('app_id', '')[:10]}...")
+        print(f"  状态:       已配置")
+    else:
+        print("\n飞书客户端: 未配置")
+
     if mkdocs_projects:
         print(f"\n项目: {len(mkdocs_projects)} 个")
         for proj in mkdocs_projects:
@@ -950,6 +1062,7 @@ def interactive_init(
         letsencrypt_config=letsencrypt_config,
         nginx_config=nginx_config,
         logging_config=logging_config,
+        feishu_config=feishu_config,
         force=True,
     )
 

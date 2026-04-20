@@ -601,14 +601,14 @@ domain = "*.example.com"
 class TestInteractiveInit:
     """Test interactive config initialization."""
 
-    @patch("builtins.input", side_effect=["n", "n", "n", "", "", EOFError()])
+    @patch("builtins.input", side_effect=["n", "n", "n", "n", "", "", EOFError()])
     def test_interactive_init_skip_all(self, mock_input, tmp_path):
-        """Test interactive init skipping LE, nginx, logging, projects, and git sections."""
+        """Test interactive init skipping LE, nginx, logging, feishu, projects, and git sections."""
         config_path = tmp_path / "zxtool.toml"
         from zxtoolbox.config_manager import interactive_init
 
         # Inputs: "n" = skip LE config, "n" = skip nginx, "n" = skip logging,
-        # "" = skip project dir, "" = skip git name, then EOFError on confirmation
+        # "n" = skip feishu, "" = skip project dir, "" = skip git name, then EOFError on confirmation
         result = interactive_init(config_path)
         # Should return False due to EOFError during confirmation, or True if completed
         assert result is False or mock_input.call_count >= 1

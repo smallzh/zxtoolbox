@@ -349,6 +349,42 @@ def main():
     le_init_parser = le_subparsers.add_parser("init", help="初始化输出目录")
     le_init_parser.add_argument("--output", type=str, default=None, help="输出目录")
 
+    # le cron - 定时任务管理
+    le_cron_parser = le_subparsers.add_parser("cron", help="管理自动续签定时任务")
+    le_cron_subparsers = le_cron_parser.add_subparsers(dest="cron_command", help="定时任务子命令")
+
+    # le cron install
+    le_cron_install_parser = le_cron_subparsers.add_parser("install", help="安装自动续签定时任务")
+
+    # le cron uninstall
+    le_cron_uninstall_parser = le_cron_subparsers.add_parser("uninstall", help="卸载自动续签定时任务")
+
+    # ========== feishu 子命令 - 飞书客户端 ==========
+    feishu_parser = subparsers.add_parser("feishu", help="飞书客户端集成（WebSocket 长连接）")
+    feishu_subparsers = feishu_parser.add_subparsers(dest="feishu_command", help="飞书子命令")
+
+    # feishu start
+    feishu_start_parser = feishu_subparsers.add_parser(
+        "start", help="启动飞书客户端（WebSocket 长连接）"
+    )
+    feishu_start_parser.add_argument(
+        "--config", type=str, default=None, help="配置文件路径（默认 ~/.config/zxtool.toml）"
+    )
+    feishu_start_parser.add_argument(
+        "--app-id", type=str, default=None, help="飞书 App ID（优先于配置文件）"
+    )
+    feishu_start_parser.add_argument(
+        "--app-secret", type=str, default=None, help="飞书 App Secret（优先于配置文件）"
+    )
+
+    # feishu check
+    feishu_check_parser = feishu_subparsers.add_parser(
+        "check", help="检查飞书配置"
+    )
+    feishu_check_parser.add_argument(
+        "--config", type=str, default=None, help="配置文件路径"
+    )
+
     # ========== 解析参数 ==========
     args = parser.parse_args()
 
@@ -605,8 +641,65 @@ def main():
             )
         elif le_cmd == "init":
             le.init(out_dir)
+        elif le_cmd == "cron":
+            cron_cmd = getattr(args, "cron_command", None)
+            if cron_cmd == "install":
+                le.install_cronjob()
+            elif cron_cmd == "uninstall":
+                le.uninstall_cronjob()
+            else:
+                le_cron_parser.print_help()
         else:
             le_parser.print_help()
+        return
+
+    # ========== feishu 子命令分发 ==========
+    if args.command == "feishu":
+        from zxtoolbox.feishu_client import FeishuClient, create_client_from_config
+
+        feishu_cmd = getattr(args, "feishu_command", None)
+
+        if feishu_cmd == "start":
+            # 优先使用命令行参数，其次使用配置文件
+            app_id = args.app_id
+            app_secret = args.app_secret
+            config_path = args.config
+
+            if app_id and app_secret:
+                # 使用命令行参数
+                client = FeishuClient(app_id=app_id, app_secret=app_secret)
+                client.start()
+            else:
+                # 使用配置文件
+                try:
+                    client = create_client_from_config(config_path)
+                    client.start()
+                except FileNotFoundError as e:
+                    print(f"[ERROR] 配置文件不存在: {e}")
+                    print("请使用 'zxtool config init' 初始化配置，或提供 --app-id 和 --app-secret 参数")
+                except ValueError as e:
+                    print(f"[ERROR] 配置错误: {e}")
+        elif feishu_cmd == "check":
+            # 检查配置
+            from zxtoolbox.config_manager import load_feishu_config
+
+            try:
+                config = load_feishu_config(args.config)
+                if config.get("app_id") and config.get("app_secret"):
+                    print(f"[OK] 飞书配置正常")
+                    print(f"  App ID: {config['app_id'][:10]}...")
+                    print(f"  状态: 已配置")
+                else:
+                    print("[WARN] 飞书配置不完整")
+                    print("请在 zxtool.toml 中添加:")
+                    print("[feishu]")
+                    print('app_id = "cli_xxxxxxxxxxxxx"')
+                    print('app_secret = "xxxxxxxxxxxxxxxxxxxx"')
+            except FileNotFoundError:
+                print("[ERROR] 配置文件不存在")
+                print("请运行 'zxtool config init' 初始化配置")
+        else:
+            feishu_parser.print_help()
         return
 
     # 无子命令时显示帮助
