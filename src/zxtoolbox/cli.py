@@ -24,6 +24,7 @@ import zxtoolbox.video_download as vd
 import zxtoolbox.ssl_cert as ssl
 import zxtoolbox.git_config as gc
 import zxtoolbox.config_manager as cm
+import zxtoolbox.http_server as hs
 import zxtoolbox.logging_manager as lm
 
 
@@ -56,6 +57,22 @@ def main():
     )
     video_parser.add_argument(
         "-o", "--output", type=str, default=None, help="视频输出路径"
+    )
+
+    # ========== http 子命令 - 静态文件服务 ==========
+    http_parser = subparsers.add_parser("http", help="静态文件 HTTP 服务")
+    http_subparsers = http_parser.add_subparsers(dest="http_command", help="HTTP 子命令")
+
+    # http serve
+    http_serve_parser = http_subparsers.add_parser("serve", help="启动静态文件 HTTP 服务")
+    http_serve_parser.add_argument(
+        "directory", nargs="?", default=".", help="静态文件目录（默认当前目录）"
+    )
+    http_serve_parser.add_argument(
+        "--host", type=str, default="127.0.0.1", help="监听地址（默认: 127.0.0.1）"
+    )
+    http_serve_parser.add_argument(
+        "-p", "--port", type=int, default=8000, help="监听端口（默认: 8000）"
     )
 
     # ========== ssl 子命令 - SSL 证书生成 ==========
@@ -404,6 +421,19 @@ def main():
     # ========== video 子命令分发 ==========
     if args.command == "video":
         vd.download_with_progress(args.url, args.output)
+        return
+
+    # ========== http 子命令分发 ==========
+    if args.command == "http":
+        http_cmd = getattr(args, "http_command", None)
+        if http_cmd == "serve":
+            hs.serve_directory(
+                directory=args.directory,
+                host=args.host,
+                port=args.port,
+            )
+        else:
+            http_parser.print_help()
         return
 
     # ========== ssl 子命令分发 ==========

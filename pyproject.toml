@@ -1,6 +1,6 @@
 [project]
 name = "zxtoolbox"
-version = "1.5.12"
+version = "1.6.12"
 description = "some used tool collections"
 readme = "README.md"
 requires-python = ">=3.13"

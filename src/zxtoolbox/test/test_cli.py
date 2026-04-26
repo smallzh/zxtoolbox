@@ -130,6 +130,46 @@ class TestCliVideo:
                 cli.main()
 
 
+class TestCliHttp:
+    """Test CLI http subcommand."""
+
+    @patch("zxtoolbox.logging_manager.setup_logging", return_value=None)
+    def test_http_no_subcommand_shows_help(self, mock_setup_log, capsys):
+        """Test http without subcommand shows help."""
+        with patch.object(sys, "argv", ["zxtool", "http"]):
+            cli.main()
+        captured = capsys.readouterr()
+        assert "http" in captured.out.lower()
+
+    @patch("zxtoolbox.logging_manager.setup_logging", return_value=None)
+    @patch("zxtoolbox.http_server.serve_directory")
+    def test_http_serve_default(self, mock_serve, mock_setup_log, capsys):
+        """Test http serve with default options."""
+        with patch.object(sys, "argv", ["zxtool", "http", "serve"]):
+            cli.main()
+        mock_serve.assert_called_once_with(
+            directory=".",
+            host="127.0.0.1",
+            port=8000,
+        )
+
+    @patch("zxtoolbox.logging_manager.setup_logging", return_value=None)
+    @patch("zxtoolbox.http_server.serve_directory")
+    def test_http_serve_with_custom_options(self, mock_serve, mock_setup_log, capsys):
+        """Test http serve with custom directory, host and port."""
+        with patch.object(
+            sys,
+            "argv",
+            ["zxtool", "http", "serve", "./site", "--host", "0.0.0.0", "--port", "9000"],
+        ):
+            cli.main()
+        mock_serve.assert_called_once_with(
+            directory="./site",
+            host="0.0.0.0",
+            port=9000,
+        )
+
+
 class TestCliSsl:
     """Test CLI ssl subcommand."""
 

@@ -10,6 +10,7 @@ Window、Mac、Linux系统中,对经常做的一些重复性事情的封装
 - **自签 SSL 证书**: 生成泛域名自签证书,支持多域名和 SAN,方便开发调试
 - **Let's Encrypt 证书**: 通过 ACME v2 协议获取免费证书,支持 DNS-01 自动验证和续签
 - **MkDocs 项目管理**: 批量构建和发布 MkDocs 文档站点,支持开发服务器预览
+- **HTTP 静态文件服务**: 快速启动本地静态文件 HTTP 服务,用于预览和临时共享目录
 - **Nginx 站点配置**: 根据配置自动生成和管理 Nginx 站点配置,支持 HTTPS 和批量发布
 - **TOTP 2FA 解析**: 解析 TOTP 双因素认证密钥
 - **在线视频下载**: 基于 yt-dlp 下载在线视频
@@ -39,6 +40,7 @@ zxtool --help
 | `ssl` | 自签 SSL 证书生成 | `zxtool ssl cert -d example.dev` |
 | `totp` | TOTP 双因素认证解析 | `zxtool totp -k SECRET_KEY` |
 | `video` | 在线视频下载 | `zxtool video -u https://...` |
+| `http` | 静态文件 HTTP 服务 | `zxtool http serve ./dist -p 8000` |
 | `mkdocs` | MkDocs 项目管理 | `zxtool mkdocs serve ./my-docs` |
 | `nginx` | Nginx 站点配置管理 | `zxtool nginx generate` |
 | `config` | 配置文件管理 | `zxtool config init` |
@@ -48,13 +50,15 @@ zxtool --help
 
 ```text
 toolbox/
-├── doc/                    # 文档目录
+├── docs/                  # 文档目录
 │   ├── index.md           # 项目文档
-│   ├── ci.md              # 计算机信息获取文档
+│   ├── computer_info.md   # 计算机信息获取文档
 │   ├── config_manager.md  # 配置文件管理文档
 │   ├── git_config.md      # Git 仓库配置文档
+│   ├── http_server.md     # HTTP 静态文件服务文档
 │   ├── letsencrypt.md     # Let's Encrypt 证书文档
 │   ├── mkdocs_manager.md  # MkDocs 项目管理文档
+│   ├── nginx_manager.md   # Nginx 配置文档
 │   ├── ssl_cert.md        # SSL 证书生成文档
 │   ├── totp.md            # TOTP 2FA 文档
 │   └── video_download.md  # 视频下载文档
@@ -65,8 +69,10 @@ toolbox/
 │       ├── computer_info.py    # 计算机信息获取
 │       ├── config_manager.py   # 配置文件管理
 │       ├── git_config.py       # Git 仓库配置管理
+│       ├── http_server.py      # HTTP 静态文件服务
 │       ├── letsencrypt.py      # Let's Encrypt 证书管理
 │       ├── mkdocs_manager.py   # MkDocs 项目管理
+│       ├── nginx_manager.py    # Nginx 配置管理
 │       ├── pyopt_2fa.py        # 2FA 工具
 │       ├── ssl_cert.py         # SSL 证书生成
 │       ├── video_download.py   # 视频下载

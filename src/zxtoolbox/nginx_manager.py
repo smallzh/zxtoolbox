@@ -25,6 +25,22 @@ NGINX_SITE_TEMPLATE = """\
 # Nginx 配置 - 由 zxtool 自动生成
 # 站点: {server_name}
 
+# HTTP -> HTTPS 跳转
+server {{
+    listen {http_port};
+    listen [::]:{http_port};
+    server_name {server_name};
+
+    # Let's Encrypt ACME 验证路径
+    location ^~ /.well-known/acme-challenge/ {{
+        root {webroot};
+    }}
+
+    location / {{
+        return 301 {https_redirect_target}$request_uri;
+    }}
+}}
+
 # HTTPS 站点
 server {{
     listen {https_port} ssl http2;
@@ -332,6 +348,10 @@ def generate_site_config(
     if webroot is None:
         webroot = root
 
+    https_redirect_target = "https://$host"
+    if https_port != 443:
+        https_redirect_target = f"https://$host:{https_port}"
+
     if ssl_certificate and ssl_certificate_key:
         return NGINX_SITE_TEMPLATE.format(
             server_name=server_name,
@@ -341,6 +361,7 @@ def generate_site_config(
             webroot=webroot,
             http_port=http_port,
             https_port=https_port,
+            https_redirect_target=https_redirect_target,
         )
     else:
         return NGINX_HTTP_ONLY_TEMPLATE.format(

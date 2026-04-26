@@ -21,6 +21,7 @@ nav:
       - Nginx站点配置: nginx_manager.md
       - Let's Encrypt证书: letsencrypt.md
       - 飞书Client: feishu_client.md
+      - HTTP静态文件服务: http_server.md
       - 自签SSL证书: ssl_cert.md
       - 视频下载: video_download.md
       - TOTP解析: totp.md
