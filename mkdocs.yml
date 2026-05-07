@@ -1,40 +1,37 @@
 site_name: zxtoolbox
-site_description: Window、Mac、Linux系统中,对经常做的一些重复性事情的封装
+site_description: Windows、Mac、Linux 上常用重复任务工具集合
 site_author: smallZh
 
-# Directory configuration
 docs_dir: docs
 site_dir: site
 
-# Theme configuration
 theme:
   name: smzhbook
 
-# Navigation structure
 nav:
   - 首页: index.md
   - 文档:
-      - zxtool配置管理: config_manager.md
-      - 电脑OS和硬件信息: computer_info.md
-      - Git配置管理: git_config.md
-      - MkDocs构建: mkdocs_manager.md
-      - Nginx站点配置: nginx_manager.md
-      - Let's Encrypt证书: letsencrypt.md
-      - 飞书Client: feishu_client.md
-      - 自签SSL证书: ssl_cert.md
+      - zxtool 配置管理: config_manager.md
+      - 电脑 OS 和硬件信息: computer_info.md
+      - Git 配置管理: git_config.md
+      - MkDocs 构建: mkdocs_manager.md
+      - Nginx 站点配置: nginx_manager.md
+      - Let's Encrypt 证书: letsencrypt.md
+      - 飞书 Client: feishu_client.md
+      - 自签 SSL 证书: ssl_cert.md
+      - EPUB 转 Markdown: epub_manager.md
+      - 目录备份拷贝: backup_manager.md
       - 视频下载: video_download.md
-      - TOTP解析: totp.md
+      - TOTP 解析: totp.md
 
-# Plugins
 plugins:
   - search:
-      lang: [ 'zh', 'en' ]
-      separator: '[\s\-\.]+'
+      lang: ["zh", "en"]
+      separator: "[\\s\\-\\.]+" 
       min_search_length: 2
       prebuild_index: false
       indexing: full
 
-# Markdown extensions
 markdown_extensions:
   - admonition
   - attr_list
@@ -43,7 +40,6 @@ markdown_extensions:
   - toc:
       permalink: true
 
-# Extra configuration
 extra:
   social:
     - icon: fontawesome/brands/github

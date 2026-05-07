@@ -1,394 +1,273 @@
-"""ZX Toolbox CLI 入口。
+"""ZX Toolbox command-line entry point."""
 
-子命令结构：
-    zxtool ci [options]           - 计算机信息（默认显示简短信息）
-    zxtool le <subcommand>        - Let's Encrypt 证书管理
-    zxtool ssl <subcommand>       - 自签 SSL 证书生成
-    zxtool totp -k <key>          - TOTP 双因素认证解析
-    zxtool video -u <url>          - 在线视频下载
-    zxtool mkdocs <subcommand>    - MkDocs 项目管理
-    zxtool config <subcommand>    - 配置文件管理
-    zxtool git <subcommand>       - Git 仓库管理（config/pull）
-"""
+from __future__ import annotations
 
 import argparse
 import json
-import sys
 from pathlib import Path
 
 from zxtoolbox import __version__
 
+import zxtoolbox.backup_manager as bpm
 import zxtoolbox.computer_info as cpi
-import zxtoolbox.pyopt_2fa as opt2fa
-import zxtoolbox.video_download as vd
-import zxtoolbox.ssl_cert as ssl
-import zxtoolbox.git_config as gc
 import zxtoolbox.config_manager as cm
+import zxtoolbox.epub_manager as em
+import zxtoolbox.git_config as gc
 import zxtoolbox.logging_manager as lm
+import zxtoolbox.pyopt_2fa as opt2fa
+import zxtoolbox.ssl_cert as ssl
+import zxtoolbox.video_download as vd
 
 
-def main():
-    # 初始化日志系统
-    lm.setup_logging()
+def build_parser() -> argparse.ArgumentParser:
+    """Build the top-level CLI parser."""
     parser = argparse.ArgumentParser(
-        description="ZX Toolbox - 跨平台工具集合",
+        description="ZX Toolbox - cross-platform utilities for repetitive tasks.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
+    parser.set_defaults(_command_parser=parser)
     parser.add_argument("-v", "--version", action="version", version=f"zxtoolbox {__version__}")
-    subparsers = parser.add_subparsers(dest="command", help="可用命令")
+    subparsers = parser.add_subparsers(dest="command", help="available commands")
 
-    # ========== ci 子命令 - 计算机信息 ==========
-    ci_parser = subparsers.add_parser("ci", help="显示计算机信息（默认简短信息）")
-    ci_parser.add_argument(
-        "-a", "--all", action="store_true", help="显示详细信息"
-    )
+    ci_parser = subparsers.add_parser("ci", help="show computer information")
+    ci_parser.set_defaults(_command_parser=ci_parser)
+    ci_parser.add_argument("-a", "--all", action="store_true", help="show detailed information")
 
-    # ========== totp 子命令 - TOTP 解析 ==========
-    totp_parser = subparsers.add_parser("totp", help="TOTP 双因素认证解析")
-    totp_parser.add_argument(
-        "-k", "--key", type=str, required=True, help="TOTP 待解析的 key"
-    )
+    totp_parser = subparsers.add_parser("totp", help="parse a TOTP key")
+    totp_parser.set_defaults(_command_parser=totp_parser)
+    totp_parser.add_argument("-k", "--key", type=str, required=True, help="TOTP secret key")
 
-    # ========== video 子命令 - 视频下载 ==========
-    video_parser = subparsers.add_parser("video", help="在线视频下载")
-    video_parser.add_argument(
-        "-u", "--url", type=str, required=True, help="视频 URL 地址"
-    )
-    video_parser.add_argument(
-        "-o", "--output", type=str, default=None, help="视频输出路径"
-    )
+    video_parser = subparsers.add_parser("video", help="download online video")
+    video_parser.set_defaults(_command_parser=video_parser)
+    video_parser.add_argument("-u", "--url", type=str, required=True, help="video URL")
+    video_parser.add_argument("-o", "--output", type=str, default=None, help="output path")
 
-    # ========== ssl 子命令 - SSL 证书生成 ==========
-    ssl_parser = subparsers.add_parser("ssl", help="自签泛域名 SSL 证书生成")
-    ssl_subparsers = ssl_parser.add_subparsers(dest="ssl_command", help="SSL 子命令")
+    _build_ssl_parser(subparsers)
+    _build_mkdocs_parser(subparsers)
+    _build_nginx_parser(subparsers)
+    _build_config_parser(subparsers)
+    _build_git_parser(subparsers)
+    _build_epub_parser(subparsers)
+    _build_backup_parser(subparsers)
+    _build_le_parser(subparsers)
+    _build_feishu_parser(subparsers)
 
-    # ssl init
-    ssl_init_parser = ssl_subparsers.add_parser("init", help="初始化输出目录结构")
-    ssl_init_parser.add_argument(
-        "--output", type=str, default=None, help="输出目录路径（默认: ./out）"
-    )
+    return parser
 
-    # ssl root
-    ssl_root_parser = ssl_subparsers.add_parser("root", help="生成 Root CA 证书")
-    ssl_root_parser.add_argument(
-        "--output", type=str, default=None, help="输出目录路径（默认: ./out）"
-    )
-    ssl_root_parser.add_argument(
-        "--force", action="store_true", help="强制重新生成（覆盖已有证书）"
-    )
 
-    # ssl cert
-    ssl_cert_parser = ssl_subparsers.add_parser("cert", help="生成域名证书")
-    ssl_cert_parser.add_argument(
-        "-d", "--domain", nargs="+", required=True,
-        help="域名列表，如 example.dev another.dev"
-    )
-    ssl_cert_parser.add_argument(
-        "--output", type=str, default=None, help="输出目录路径（默认: ./out）"
-    )
+def _build_ssl_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
+    ssl_parser = subparsers.add_parser("ssl", help="generate self-signed SSL certificates")
+    ssl_parser.set_defaults(_command_parser=ssl_parser)
+    ssl_subparsers = ssl_parser.add_subparsers(dest="ssl_command", help="ssl subcommands")
 
-    # ========== mkdocs 子命令 ==========
-    mkdocs_parser = subparsers.add_parser("mkdocs", help="MkDocs 项目管理")
-    mkdocs_subparsers = mkdocs_parser.add_subparsers(
-        dest="mkdocs_command", help="MkDocs 子命令"
-    )
+    ssl_init_parser = ssl_subparsers.add_parser("init", help="initialize output directory structure")
+    ssl_init_parser.set_defaults(_command_parser=ssl_init_parser)
+    ssl_init_parser.add_argument("--output", type=str, default=None, help="output directory")
 
-    # mkdocs create
-    mkdocs_create_parser = mkdocs_subparsers.add_parser("create", help="创建新的 MkDocs 项目")
-    mkdocs_create_parser.add_argument("project_dir", help="项目目录路径")
-    mkdocs_create_parser.add_argument(
-        "--name", type=str, default=None, help="站点名称（默认使用目录名）"
-    )
+    ssl_root_parser = ssl_subparsers.add_parser("root", help="generate Root CA")
+    ssl_root_parser.set_defaults(_command_parser=ssl_root_parser)
+    ssl_root_parser.add_argument("--output", type=str, default=None, help="output directory")
+    ssl_root_parser.add_argument("--force", action="store_true", help="overwrite existing root certs")
 
-    # mkdocs build
-    mkdocs_build_parser = mkdocs_subparsers.add_parser(
-        "build", help="构建 MkDocs 项目到指定目录"
-    )
-    mkdocs_build_parser.add_argument("project_dir", nargs="?", default=None, help="MkDocs 项目目录")
-    mkdocs_build_parser.add_argument("-o", "--output", type=str, default=None, help="输出目录")
-    mkdocs_build_parser.add_argument(
-        "-c", "--config", type=str, default=None, help="配置文件路径（相对或绝对）"
-    )
-    mkdocs_build_parser.add_argument(
-        "--name", type=str, default=None,
-        help="项目名称（根据 zxtool.toml 配置查找项目，优先于 project_dir）",
-    )
-    mkdocs_build_parser.add_argument(
-        "--strict", action="store_true", help="严格模式（警告视为错误）"
-    )
+    ssl_cert_parser = ssl_subparsers.add_parser("cert", help="generate domain certificates")
+    ssl_cert_parser.set_defaults(_command_parser=ssl_cert_parser)
+    ssl_cert_parser.add_argument("-d", "--domain", nargs="+", required=True, help="domain list")
+    ssl_cert_parser.add_argument("--output", type=str, default=None, help="output directory")
 
-    # mkdocs batch
-    mkdocs_batch_parser = mkdocs_subparsers.add_parser(
-        "batch", help="批量构建多个 MkDocs 项目"
-    )
-    mkdocs_batch_parser.add_argument(
-        "config_file",
-        nargs="?",
-        default=None,
-        help="TOML 配置文件路径（默认: ~/.config/zxtool.toml）",
-    )
-    mkdocs_batch_parser.add_argument(
-        "--dry-run", action="store_true", help="仅打印构建计划，不实际执行"
-    )
 
-    # mkdocs serve
-    mkdocs_serve_parser = mkdocs_subparsers.add_parser(
-        "serve", help="启动 MkDocs 开发服务器预览文档"
-    )
-    mkdocs_serve_parser.add_argument("project_dir", help="MkDocs 项目目录")
-    mkdocs_serve_parser.add_argument(
-        "-a", "--dev-addr", type=str, default=None,
-        help="开发服务器地址（格式: IP:PORT，默认 127.0.0.1:8000）"
-    )
-    mkdocs_serve_parser.add_argument(
-        "-c", "--config", type=str, default=None,
-        help="配置文件路径（相对或绝对）"
-    )
-    mkdocs_serve_parser.add_argument(
-        "--no-livereload", action="store_true",
-        help="禁用热重载功能"
-    )
+def _build_mkdocs_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
+    mkdocs_parser = subparsers.add_parser("mkdocs", help="manage MkDocs projects")
+    mkdocs_parser.set_defaults(_command_parser=mkdocs_parser)
+    mkdocs_subparsers = mkdocs_parser.add_subparsers(dest="mkdocs_command", help="mkdocs subcommands")
 
-    # ========== nginx 子命令 ==========
-    nginx_parser = subparsers.add_parser("nginx", help="Nginx 站点配置管理")
-    nginx_subparsers = nginx_parser.add_subparsers(
-        dest="nginx_command", help="Nginx 子命令"
-    )
+    mkdocs_create_parser = mkdocs_subparsers.add_parser("create", help="create a new MkDocs project")
+    mkdocs_create_parser.set_defaults(_command_parser=mkdocs_create_parser)
+    mkdocs_create_parser.add_argument("project_dir", help="project directory")
+    mkdocs_create_parser.add_argument("--name", type=str, default=None, help="site name")
 
-    # nginx check
-    nginx_check_parser = nginx_subparsers.add_parser(
-        "check", help="检查 Nginx 是否可用及配置目录"
-    )
+    mkdocs_build_parser = mkdocs_subparsers.add_parser("build", help="build a MkDocs project")
+    mkdocs_build_parser.set_defaults(_command_parser=mkdocs_build_parser)
+    mkdocs_build_parser.add_argument("project_dir", nargs="?", default=None, help="project directory")
+    mkdocs_build_parser.add_argument("-o", "--output", type=str, default=None, help="output directory")
+    mkdocs_build_parser.add_argument("-c", "--config", type=str, default=None, help="config file path")
+    mkdocs_build_parser.add_argument("--name", type=str, default=None, help="project name from zxtool config")
+    mkdocs_build_parser.add_argument("--strict", action="store_true", help="enable strict mode")
 
-    # nginx generate
-    nginx_generate_parser = nginx_subparsers.add_parser(
-        "generate", help="根据配置文件生成 Nginx 站点配置"
-    )
-    nginx_generate_parser.add_argument(
-        "--config", type=str, default=None,
-        help="zxtool.toml 配置文件路径（默认: ~/.config/zxtool.toml）"
-    )
-    nginx_generate_parser.add_argument(
-        "-o", "--output", type=str, default=None,
-        help="配置文件输出目录"
-    )
-    nginx_generate_parser.add_argument(
-        "--dry-run", action="store_true",
-        help="仅打印生成计划，不实际写入文件"
-    )
+    mkdocs_batch_parser = mkdocs_subparsers.add_parser("batch", help="batch build MkDocs projects")
+    mkdocs_batch_parser.set_defaults(_command_parser=mkdocs_batch_parser)
+    mkdocs_batch_parser.add_argument("config_file", nargs="?", default=None, help="TOML config file path")
+    mkdocs_batch_parser.add_argument("--dry-run", action="store_true", help="print plan only")
 
-    # nginx enable
-    nginx_enable_parser = nginx_subparsers.add_parser(
-        "enable", help="启用 Nginx 站点配置（创建符号链接）"
-    )
-    nginx_enable_parser.add_argument("domain", help="站点域名")
+    mkdocs_serve_parser = mkdocs_subparsers.add_parser("serve", help="serve a MkDocs project")
+    mkdocs_serve_parser.set_defaults(_command_parser=mkdocs_serve_parser)
+    mkdocs_serve_parser.add_argument("project_dir", help="project directory")
+    mkdocs_serve_parser.add_argument("-a", "--dev-addr", type=str, default=None, help="dev server address")
+    mkdocs_serve_parser.add_argument("-c", "--config", type=str, default=None, help="config file path")
+    mkdocs_serve_parser.add_argument("--no-livereload", action="store_true", help="disable livereload")
 
-    # nginx disable
-    nginx_disable_parser = nginx_subparsers.add_parser(
-        "disable", help="禁用 Nginx 站点配置（移除符号链接）"
-    )
-    nginx_disable_parser.add_argument("domain", help="站点域名")
 
-    # nginx reload
-    nginx_reload_parser = nginx_subparsers.add_parser(
-        "reload", help="重载 Nginx 配置"
-    )
+def _build_nginx_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
+    nginx_parser = subparsers.add_parser("nginx", help="manage Nginx site configuration")
+    nginx_parser.set_defaults(_command_parser=nginx_parser)
+    nginx_subparsers = nginx_parser.add_subparsers(dest="nginx_command", help="nginx subcommands")
 
-    # ========== config 子命令 ==========
-    config_parser = subparsers.add_parser("config", help="配置文件管理")
-    config_subparsers = config_parser.add_subparsers(
-        dest="config_command", help="配置子命令"
-    )
+    nginx_check_parser = nginx_subparsers.add_parser("check", help="check whether Nginx is available")
+    nginx_check_parser.set_defaults(_command_parser=nginx_check_parser)
 
-    # config init
-    config_init_parser = config_subparsers.add_parser(
-        "init", help="交互式初始化配置文件"
-    )
-    config_init_parser.add_argument(
-        "--path",
-        type=str,
-        default=None,
-        help="配置文件路径（默认 ~/.config/zxtool.toml）",
-    )
-    config_init_parser.add_argument(
-        "--force", action="store_true", help="覆盖已存在的配置文件"
-    )
+    nginx_generate_parser = nginx_subparsers.add_parser("generate", help="generate Nginx config from zxtool.toml")
+    nginx_generate_parser.set_defaults(_command_parser=nginx_generate_parser)
+    nginx_generate_parser.add_argument("--config", type=str, default=None, help="zxtool config path")
+    nginx_generate_parser.add_argument("-o", "--output", type=str, default=None, help="output directory")
+    nginx_generate_parser.add_argument("--dry-run", action="store_true", help="print plan only")
 
-    # config show
-    config_show_parser = config_subparsers.add_parser("show", help="显示当前配置内容")
-    config_show_parser.add_argument(
-        "--path",
-        type=str,
-        default=None,
-        help="配置文件路径（默认 ~/.config/zxtool.toml）",
-    )
+    nginx_enable_parser = nginx_subparsers.add_parser("enable", help="enable one generated site config")
+    nginx_enable_parser.set_defaults(_command_parser=nginx_enable_parser)
+    nginx_enable_parser.add_argument("domain", help="site domain")
 
-    # ========== git 子命令 ==========
-    git_parser = subparsers.add_parser("git", help="Git 仓库配置管理")
-    git_subparsers = git_parser.add_subparsers(dest="git_command", help="Git 子命令")
+    nginx_disable_parser = nginx_subparsers.add_parser("disable", help="disable one generated site config")
+    nginx_disable_parser.set_defaults(_command_parser=nginx_disable_parser)
+    nginx_disable_parser.add_argument("domain", help="site domain")
 
-    # git config
-    gc_config_parser = git_subparsers.add_parser("config", help="管理 Git 仓库 user 配置")
-    gc_config_parser.add_argument(
-        "config_command",
-        nargs="?",
-        default=None,
-        help="子命令: check (检查) / fill (填充)",
-    )
-    gc_config_parser.add_argument(
-        "project_dir",
-        nargs="?",
-        default=None,
-        help="项目目录路径（默认当前目录）",
-    )
-    gc_config_parser.add_argument(
-        "--config", type=str, default=None, help="zxtool.toml 配置文件路径"
-    )
-    gc_config_parser.add_argument("--name", type=str, default=None, help="git user.name")
-    gc_config_parser.add_argument("--email", type=str, default=None, help="git user.email")
+    nginx_reload_parser = nginx_subparsers.add_parser("reload", help="reload Nginx configuration")
+    nginx_reload_parser.set_defaults(_command_parser=nginx_reload_parser)
 
-    # git pull
-    git_pull_parser = git_subparsers.add_parser("pull", help="从远程仓库拉取更新")
-    git_pull_parser.add_argument(
-        "project_dir",
-        nargs="?",
-        default=None,
-        help="项目目录路径（默认当前目录）",
-    )
-    git_pull_parser.add_argument(
-        "--name", type=str, default=None,
-        help="项目名称（根据 zxtool.toml 配置查找项目，优先于 project_dir）",
-    )
-    git_pull_parser.add_argument(
-        "--remote", type=str, default=None, help="远程仓库名称（默认使用仓库配置的 upstream）"
-    )
-    git_pull_parser.add_argument(
-        "--branch", type=str, default=None, help="分支名称（默认使用当前分支）"
-    )
-    git_pull_parser.add_argument(
-        "--config", type=str, default=None, help="zxtool.toml 配置文件路径（使用 --name 时生效）"
-    )
 
-    # ========== le 子命令 - Let's Encrypt ==========
-    le_parser = subparsers.add_parser("le", help="Let's Encrypt ACME v2 证书管理")
-    le_subparsers = le_parser.add_subparsers(dest="le_command", help="LE 子命令")
+def _build_config_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
+    config_parser = subparsers.add_parser("config", help="manage zxtool configuration")
+    config_parser.set_defaults(_command_parser=config_parser)
+    config_subparsers = config_parser.add_subparsers(dest="config_command", help="config subcommands")
 
-    # le issue - 签发证书
-    le_issue_parser = le_subparsers.add_parser("issue", help="签发新证书")
-    le_issue_parser.add_argument(
-        "-d", "--domain", nargs="+", required=True, help="域名列表"
-    )
-    le_issue_parser.add_argument(
-        "--provider", default=None,
-        help="验证提供商 (DNS-01: manual/cloudflare/aliyun; HTTP-01: webroot/standalone)，不指定则从配置文件读取"
-    )
-    le_issue_parser.add_argument(
-        "--provider-config", type=str, default=None, help="提供商配置 (JSON 字符串)，不指定则从配置文件读取"
-    )
-    le_issue_parser.add_argument(
-        "--challenge",
-        default=None,
-        choices=["dns-01", "http-01"],
-        help="验证方式 (dns-01: 支持泛域名; http-01: 仅普通域名)，不指定则从配置文件读取",
-    )
-    le_issue_parser.add_argument(
-        "--production", action="store_true", default=None,
-        help="使用生产环境（默认测试环境），不指定则从配置文件读取"
-    )
-    le_issue_parser.add_argument(
-        "--email", default=None, help="联系邮箱，不指定则从配置文件读取"
-    )
-    le_issue_parser.add_argument(
-        "--key-size", type=int, default=2048, choices=[2048, 4096], help="RSA 密钥长度"
-    )
-    le_issue_parser.add_argument(
-        "--output", type=str, default=None,
-        help="输出目录，不指定则从配置文件读取"
-    )
-    le_issue_parser.add_argument(
-        "--le-config", type=str, default=None,
-        help="zxtool.toml 配置文件路径（默认: ~/.config/zxtool.toml）"
-    )
+    config_init_parser = config_subparsers.add_parser("init", help="initialize a config file interactively")
+    config_init_parser.set_defaults(_command_parser=config_init_parser)
+    config_init_parser.add_argument("--path", type=str, default=None, help="config path")
+    config_init_parser.add_argument("--force", action="store_true", help="overwrite existing config file")
 
-    # le renew - 续签
-    le_renew_parser = le_subparsers.add_parser("renew", help="续签即将到期的证书")
-    le_renew_parser.add_argument(
-        "--dry-run", action="store_true", help="仅检查，不执行续签"
-    )
-    le_renew_parser.add_argument(
-        "--provider-config", type=str, default=None, help="提供商配置 (JSON 字符串)"
-    )
-    le_renew_parser.add_argument("--output", type=str, default=None, help="输出目录")
+    config_show_parser = config_subparsers.add_parser("show", help="show current configuration")
+    config_show_parser.set_defaults(_command_parser=config_show_parser)
+    config_show_parser.add_argument("--path", type=str, default=None, help="config path")
 
-    # le batch - 根据配置文件批量签发/续签证书
-    le_batch_parser = le_subparsers.add_parser(
-        "batch", help="根据配置文件批量签发/续签证书"
-    )
-    le_batch_parser.add_argument(
-        "--le-config", type=str, default=None,
-        help="zxtool.toml 配置文件路径（默认: ~/.config/zxtool.toml）"
-    )
-    le_batch_parser.add_argument(
-        "--dry-run", action="store_true", help="仅打印计划，不实际执行"
-    )
 
-    # le status - 查看状态
-    le_status_parser = le_subparsers.add_parser("status", help="查看证书状态")
-    le_status_parser.add_argument("--output", type=str, default=None, help="输出目录")
+def _build_git_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
+    git_parser = subparsers.add_parser("git", help="manage Git repositories")
+    git_parser.set_defaults(_command_parser=git_parser)
+    git_subparsers = git_parser.add_subparsers(dest="git_command", help="git subcommands")
 
-    # le revoke - 吊销
-    le_revoke_parser = le_subparsers.add_parser("revoke", help="吊销证书")
-    le_revoke_parser.add_argument("-d", "--domain", required=True, help="要吊销的域名")
-    le_revoke_parser.add_argument("--provider", default="manual", help="DNS 提供商")
-    le_revoke_parser.add_argument(
-        "--provider-config", type=str, default=None, help="提供商配置 (JSON 字符串)"
-    )
-    le_revoke_parser.add_argument("--output", type=str, default=None, help="输出目录")
+    git_config_parser = git_subparsers.add_parser("config", help="manage git user configuration")
+    git_config_parser.set_defaults(_command_parser=git_config_parser)
+    git_config_parser.add_argument("config_command", nargs="?", default=None, help="check or fill")
+    git_config_parser.add_argument("project_dir", nargs="?", default=None, help="project directory")
+    git_config_parser.add_argument("--config", type=str, default=None, help="zxtool config path")
+    git_config_parser.add_argument("--name", type=str, default=None, help="git user.name")
+    git_config_parser.add_argument("--email", type=str, default=None, help="git user.email")
 
-    # le init - 初始化
-    le_init_parser = le_subparsers.add_parser("init", help="初始化输出目录")
-    le_init_parser.add_argument("--output", type=str, default=None, help="输出目录")
+    git_pull_parser = git_subparsers.add_parser("pull", help="pull one Git repository or all configured projects")
+    git_pull_parser.set_defaults(_command_parser=git_pull_parser)
+    git_pull_parser.add_argument("project_dir", nargs="?", default=None, help="project directory")
+    git_pull_parser.add_argument("--name", type=str, default=None, help="project name from zxtool config")
+    git_pull_parser.add_argument("--remote", type=str, default=None, help="remote name")
+    git_pull_parser.add_argument("--branch", type=str, default=None, help="branch name")
+    git_pull_parser.add_argument("--config", type=str, default=None, help="zxtool config path")
 
-    # le cron - 定时任务管理
-    le_cron_parser = le_subparsers.add_parser("cron", help="管理自动续签定时任务")
-    le_cron_subparsers = le_cron_parser.add_subparsers(dest="cron_command", help="定时任务子命令")
 
-    # le cron install
-    le_cron_install_parser = le_cron_subparsers.add_parser("install", help="安装自动续签定时任务")
+def _build_epub_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
+    epub_parser = subparsers.add_parser("epub", help="convert EPUB books to Markdown directories")
+    epub_parser.set_defaults(_command_parser=epub_parser)
+    epub_subparsers = epub_parser.add_subparsers(dest="epub_command", help="epub subcommands")
 
-    # le cron uninstall
-    le_cron_uninstall_parser = le_cron_subparsers.add_parser("uninstall", help="卸载自动续签定时任务")
+    epub_convert_parser = epub_subparsers.add_parser("convert", help="convert one EPUB file")
+    epub_convert_parser.set_defaults(_command_parser=epub_convert_parser)
+    epub_convert_parser.add_argument("epub_file", help="EPUB file path")
+    epub_convert_parser.add_argument("-o", "--output", type=str, default=None, help="output directory")
 
-    # ========== feishu 子命令 - 飞书客户端 ==========
-    feishu_parser = subparsers.add_parser("feishu", help="飞书客户端集成（WebSocket 长连接）")
-    feishu_subparsers = feishu_parser.add_subparsers(dest="feishu_command", help="飞书子命令")
 
-    # feishu start
-    feishu_start_parser = feishu_subparsers.add_parser(
-        "start", help="启动飞书客户端（WebSocket 长连接）"
-    )
-    feishu_start_parser.add_argument(
-        "--config", type=str, default=None, help="配置文件路径（默认 ~/.config/zxtool.toml）"
-    )
-    feishu_start_parser.add_argument(
-        "--app-id", type=str, default=None, help="飞书 App ID（优先于配置文件）"
-    )
-    feishu_start_parser.add_argument(
-        "--app-secret", type=str, default=None, help="飞书 App Secret（优先于配置文件）"
-    )
+def _build_backup_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
+    backup_parser = subparsers.add_parser("backup", help="copy directories with backup or git commit behavior")
+    backup_parser.set_defaults(_command_parser=backup_parser)
+    backup_subparsers = backup_parser.add_subparsers(dest="backup_command", help="backup subcommands")
 
-    # feishu check
-    feishu_check_parser = feishu_subparsers.add_parser(
-        "check", help="检查飞书配置"
-    )
-    feishu_check_parser.add_argument(
-        "--config", type=str, default=None, help="配置文件路径"
-    )
+    backup_copy_parser = backup_subparsers.add_parser("copy", help="copy source directory contents to target directory")
+    backup_copy_parser.set_defaults(_command_parser=backup_copy_parser)
+    backup_copy_parser.add_argument("source_dir", help="source directory")
+    backup_copy_parser.add_argument("target_dir", help="target directory")
+    backup_copy_parser.add_argument("--backup-dir-name", type=str, default=bpm.DEFAULT_BACKUP_DIR_NAME, help="backup directory name for non-git targets")
+    backup_copy_parser.add_argument("--backup-log-name", type=str, default=bpm.DEFAULT_BACKUP_LOG_NAME, help="backup record filename")
+    backup_copy_parser.add_argument("--commit-message", type=str, default=None, help="custom git commit message")
 
-    # ========== 解析参数 ==========
+
+def _build_le_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
+    le_parser = subparsers.add_parser("le", help="manage Let's Encrypt ACME v2 certificates")
+    le_parser.set_defaults(_command_parser=le_parser)
+    le_subparsers = le_parser.add_subparsers(dest="le_command", help="le subcommands")
+
+    le_issue_parser = le_subparsers.add_parser("issue", help="issue a new certificate")
+    le_issue_parser.set_defaults(_command_parser=le_issue_parser)
+    le_issue_parser.add_argument("-d", "--domain", nargs="+", required=True, help="domain list")
+    le_issue_parser.add_argument("--provider", default=None, help="validation provider")
+    le_issue_parser.add_argument("--provider-config", type=str, default=None, help="provider config as JSON")
+    le_issue_parser.add_argument("--challenge", default=None, choices=["dns-01", "http-01"], help="challenge type")
+    le_issue_parser.add_argument("--production", action="store_true", default=None, help="use production environment")
+    le_issue_parser.add_argument("--email", default=None, help="contact email")
+    le_issue_parser.add_argument("--key-size", type=int, default=2048, choices=[2048, 4096], help="RSA key size")
+    le_issue_parser.add_argument("--output", type=str, default=None, help="output directory")
+    le_issue_parser.add_argument("--le-config", type=str, default=None, help="zxtool config path")
+
+    le_renew_parser = le_subparsers.add_parser("renew", help="renew certificates that are close to expiration")
+    le_renew_parser.set_defaults(_command_parser=le_renew_parser)
+    le_renew_parser.add_argument("--dry-run", action="store_true", help="check only")
+    le_renew_parser.add_argument("--provider-config", type=str, default=None, help="provider config as JSON")
+    le_renew_parser.add_argument("--output", type=str, default=None, help="output directory")
+
+    le_batch_parser = le_subparsers.add_parser("batch", help="batch issue or renew certificates from config")
+    le_batch_parser.set_defaults(_command_parser=le_batch_parser)
+    le_batch_parser.add_argument("--le-config", type=str, default=None, help="zxtool config path")
+    le_batch_parser.add_argument("--dry-run", action="store_true", help="print plan only")
+
+    le_status_parser = le_subparsers.add_parser("status", help="show certificate status")
+    le_status_parser.set_defaults(_command_parser=le_status_parser)
+    le_status_parser.add_argument("--output", type=str, default=None, help="output directory")
+
+    le_revoke_parser = le_subparsers.add_parser("revoke", help="revoke one certificate")
+    le_revoke_parser.set_defaults(_command_parser=le_revoke_parser)
+    le_revoke_parser.add_argument("-d", "--domain", required=True, help="domain to revoke")
+    le_revoke_parser.add_argument("--provider", default="manual", help="DNS provider")
+    le_revoke_parser.add_argument("--provider-config", type=str, default=None, help="provider config as JSON")
+    le_revoke_parser.add_argument("--output", type=str, default=None, help="output directory")
+
+    le_init_parser = le_subparsers.add_parser("init", help="initialize certificate output directory")
+    le_init_parser.set_defaults(_command_parser=le_init_parser)
+    le_init_parser.add_argument("--output", type=str, default=None, help="output directory")
+
+    le_cron_parser = le_subparsers.add_parser("cron", help="manage auto-renew scheduled tasks")
+    le_cron_parser.set_defaults(_command_parser=le_cron_parser)
+    le_cron_subparsers = le_cron_parser.add_subparsers(dest="cron_command", help="cron subcommands")
+    le_cron_install_parser = le_cron_subparsers.add_parser("install", help="install auto-renew task")
+    le_cron_install_parser.set_defaults(_command_parser=le_cron_install_parser)
+    le_cron_uninstall_parser = le_cron_subparsers.add_parser("uninstall", help="uninstall auto-renew task")
+    le_cron_uninstall_parser.set_defaults(_command_parser=le_cron_uninstall_parser)
+
+
+def _build_feishu_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
+    feishu_parser = subparsers.add_parser("feishu", help="manage Feishu client integration")
+    feishu_parser.set_defaults(_command_parser=feishu_parser)
+    feishu_subparsers = feishu_parser.add_subparsers(dest="feishu_command", help="feishu subcommands")
+
+    feishu_start_parser = feishu_subparsers.add_parser("start", help="start the Feishu WebSocket client")
+    feishu_start_parser.set_defaults(_command_parser=feishu_start_parser)
+    feishu_start_parser.add_argument("--config", type=str, default=None, help="config path")
+    feishu_start_parser.add_argument("--app-id", type=str, default=None, help="Feishu app ID")
+    feishu_start_parser.add_argument("--app-secret", type=str, default=None, help="Feishu app secret")
+
+    feishu_check_parser = feishu_subparsers.add_parser("check", help="check Feishu configuration")
+    feishu_check_parser.set_defaults(_command_parser=feishu_check_parser)
+    feishu_check_parser.add_argument("--config", type=str, default=None, help="config path")
+
+
+def main() -> None:
+    """CLI main entry point."""
+    lm.setup_logging()
+    parser = build_parser()
     args = parser.parse_args()
 
-    # ========== ci 子命令分发 ==========
     if args.command == "ci":
         if args.all:
             cpi.detailed_info()
@@ -396,314 +275,344 @@ def main():
             cpi.summary_info()
         return
 
-    # ========== totp 子命令分发 ==========
     if args.command == "totp":
         opt2fa.parseTotpCdoe(args.key)
         return
 
-    # ========== video 子命令分发 ==========
     if args.command == "video":
         vd.download_with_progress(args.url, args.output)
         return
 
-    # ========== ssl 子命令分发 ==========
     if args.command == "ssl":
-        ssl_cmd = getattr(args, "ssl_command", None)
-        if ssl_cmd == "init":
-            out_dir = Path(args.output).resolve() if args.output else Path("out").resolve()
-            ssl.init(out_dir)
-        elif ssl_cmd == "root":
-            out_dir = Path(args.output).resolve() if args.output else Path("out").resolve()
-            ssl.generate_root(out_dir, force=args.force)
-        elif ssl_cmd == "cert":
-            out_dir = Path(args.output).resolve() if args.output else Path("out").resolve()
-            ssl.generate_cert(out_dir, args.domain)
-        else:
-            ssl_parser.print_help()
+        handle_ssl(args, parser)
         return
 
-    # ========== mkdocs 子命令分发 ==========
     if args.command == "mkdocs":
-        import zxtoolbox.mkdocs_manager as mdm
-
-        mkdocs_cmd = getattr(args, "mkdocs_command", None)
-
-        if mkdocs_cmd == "create":
-            mdm.create_project(args.project_dir, site_name=args.name)
-        elif mkdocs_cmd == "build":
-            if getattr(args, "name", None):
-                mdm.build_project_by_name(
-                    name=args.name,
-                    config_path=args.config,
-                    output_dir=args.output,
-                    strict=args.strict,
-                )
-            else:
-                mdm.build_project(
-                    project_dir=args.project_dir,
-                    output_dir=args.output,
-                    config_file=args.config,
-                    strict=args.strict,
-                )
-        elif mkdocs_cmd == "batch":
-            mdm.batch_build(
-                config_path=args.config_file,
-                dry_run=args.dry_run,
-            )
-        elif mkdocs_cmd == "serve":
-            mdm.serve_project(
-                project_dir=args.project_dir,
-                dev_addr=args.dev_addr,
-                config_file=args.config,
-                no_livereload=args.no_livereload,
-            )
-        else:
-            mkdocs_parser.print_help()
+        handle_mkdocs(args, parser)
         return
 
-    # ========== nginx 子命令分发 ==========
     if args.command == "nginx":
-        import zxtoolbox.nginx_manager as ngm
+        handle_nginx(args, parser)
+        return
 
-        nginx_cmd = getattr(args, "nginx_command", None)
+    if args.command == "config":
+        handle_config(args, parser)
+        return
 
-        if nginx_cmd == "check":
-            info = ngm.check_nginx()
-            if info["available"]:
-                print(f"Nginx 版本:      {info.get('version', '未知')}")
-                print(f"Nginx 路径:      {info.get('nginx_path', '未知')}")
-                print(f"配置目录:        {info.get('config_dir', '未知')}")
-                print(f"sites-available: {info.get('sites_available', '不存在')}")
-                print(f"sites-enabled:   {info.get('sites_enabled', '不存在')}")
-                print(f"conf.d:          {info.get('conf_d', '不存在')}")
-            else:
-                print("[ERROR] Nginx 未安装")
-                print("提示: 请先安装 Nginx")
-        elif nginx_cmd == "generate":
-            ngm.generate_from_config(
+    if args.command == "git":
+        handle_git(args, parser)
+        return
+
+    if args.command == "epub":
+        handle_epub(args, parser)
+        return
+
+    if args.command == "backup":
+        handle_backup(args, parser)
+        return
+
+    if args.command == "le":
+        handle_le(args, parser)
+        return
+
+    if args.command == "feishu":
+        handle_feishu(args, parser)
+        return
+
+    parser.print_help()
+
+
+def handle_ssl(args: argparse.Namespace, parser: argparse.ArgumentParser) -> None:
+    ssl_cmd = getattr(args, "ssl_command", None)
+    if ssl_cmd == "init":
+        out_dir = Path(args.output).resolve() if args.output else Path("out").resolve()
+        ssl.init(out_dir)
+    elif ssl_cmd == "root":
+        out_dir = Path(args.output).resolve() if args.output else Path("out").resolve()
+        ssl.generate_root(out_dir, force=args.force)
+    elif ssl_cmd == "cert":
+        out_dir = Path(args.output).resolve() if args.output else Path("out").resolve()
+        ssl.generate_cert(out_dir, args.domain)
+    else:
+        _print_help(args)
+
+
+def handle_mkdocs(args: argparse.Namespace, parser: argparse.ArgumentParser) -> None:
+    import zxtoolbox.mkdocs_manager as mdm
+
+    mkdocs_cmd = getattr(args, "mkdocs_command", None)
+    if mkdocs_cmd == "create":
+        mdm.create_project(args.project_dir, site_name=args.name)
+    elif mkdocs_cmd == "build":
+        if getattr(args, "name", None):
+            mdm.build_project_by_name(
+                name=args.name,
                 config_path=args.config,
                 output_dir=args.output,
-                dry_run=args.dry_run,
+                strict=args.strict,
             )
-        elif nginx_cmd == "enable":
-            ngm.enable_site(args.domain)
-        elif nginx_cmd == "disable":
-            ngm.disable_site(args.domain)
-        elif nginx_cmd == "reload":
-            ngm.reload_nginx()
         else:
-            nginx_parser.print_help()
-        return
+            mdm.build_project(
+                project_dir=args.project_dir,
+                output_dir=args.output,
+                config_file=args.config,
+                strict=args.strict,
+            )
+    elif mkdocs_cmd == "batch":
+        mdm.batch_build(
+            config_path=args.config_file,
+            dry_run=args.dry_run,
+        )
+    elif mkdocs_cmd == "serve":
+        mdm.serve_project(
+            project_dir=args.project_dir,
+            dev_addr=args.dev_addr,
+            config_file=args.config,
+            no_livereload=args.no_livereload,
+        )
+    else:
+        _print_help(args)
 
-    # ========== config 子命令分发 ==========
-    if args.command == "config":
+
+def handle_nginx(args: argparse.Namespace, parser: argparse.ArgumentParser) -> None:
+    import zxtoolbox.nginx_manager as ngm
+
+    nginx_cmd = getattr(args, "nginx_command", None)
+    if nginx_cmd == "check":
+        info = ngm.check_nginx()
+        if info["available"]:
+            print(f"Nginx version:   {info.get('version', 'unknown')}")
+            print(f"Nginx path:      {info.get('nginx_path', 'unknown')}")
+            print(f"Config dir:      {info.get('config_dir', 'unknown')}")
+            print(f"sites-available: {info.get('sites_available', 'missing')}")
+            print(f"sites-enabled:   {info.get('sites_enabled', 'missing')}")
+            print(f"conf.d:          {info.get('conf_d', 'missing')}")
+        else:
+            print("[ERROR] Nginx is not installed.")
+            print("Hint: install Nginx first.")
+    elif nginx_cmd == "generate":
+        ngm.generate_from_config(
+            config_path=args.config,
+            output_dir=args.output,
+            dry_run=args.dry_run,
+        )
+    elif nginx_cmd == "enable":
+        ngm.enable_site(args.domain)
+    elif nginx_cmd == "disable":
+        ngm.disable_site(args.domain)
+    elif nginx_cmd == "reload":
+        ngm.reload_nginx()
+    else:
+        _print_help(args)
+
+
+def handle_config(args: argparse.Namespace, parser: argparse.ArgumentParser) -> None:
+    config_cmd = getattr(args, "config_command", None)
+    if config_cmd == "init":
+        cm.interactive_init(config_path=args.path, force=args.force)
+    elif config_cmd == "show":
+        cm.show_config(config_path=args.path)
+    else:
+        _print_help(args)
+
+
+def handle_git(args: argparse.Namespace, parser: argparse.ArgumentParser) -> None:
+    git_cmd = getattr(args, "git_command", None)
+    if git_cmd == "config":
         config_cmd = getattr(args, "config_command", None)
-
-        if config_cmd == "init":
-            cm.interactive_init(config_path=args.path, force=args.force)
-        elif config_cmd == "show":
-            cm.show_config(config_path=args.path)
+        if config_cmd == "check":
+            result = gc.check_git_config(args.project_dir)
+            if result:
+                print(f"name:  {result['name']}")
+                print(f"email: {result['email']}")
+        elif config_cmd == "fill":
+            gc.fill_git_config(
+                project_dir=args.project_dir,
+                config_file=args.config,
+                name=args.name,
+                email=args.email,
+            )
         else:
-            config_parser.print_help()
-        return
-
-    # ========== git 子命令分发 ==========
-    if args.command == "git":
-        git_cmd = getattr(args, "git_command", None)
-
-        if git_cmd == "config":
-            config_cmd = getattr(args, "config_command", None)
-            if config_cmd == "check":
-                result = gc.check_git_config(args.project_dir)
-                if result:
-                    print(f"name:  {result['name']}")
-                    print(f"email: {result['email']}")
-            elif config_cmd == "fill":
-                gc.fill_git_config(
-                    project_dir=args.project_dir,
-                    config_file=args.config,
-                    name=args.name,
-                    email=args.email,
+            _print_help(args)
+    elif git_cmd == "pull":
+        if getattr(args, "name", None):
+            gc.git_pull_by_name(
+                name=args.name,
+                config_path=args.config,
+                remote=args.remote,
+                branch=args.branch,
+            )
+        elif args.project_dir:
+            gc.git_pull(
+                project_dir=args.project_dir,
+                remote=args.remote,
+                branch=args.branch,
+            )
+        else:
+            if gc.find_git_dir():
+                gc.git_pull(
+                    project_dir=None,
+                    remote=args.remote,
+                    branch=args.branch,
                 )
             else:
-                gc_config_parser.print_help()
-        elif git_cmd == "pull":
-            if getattr(args, "name", None):
-                gc.git_pull_by_name(
-                    name=args.name,
+                gc.git_pull_all_projects(
                     config_path=args.config,
                     remote=args.remote,
                     branch=args.branch,
                 )
-            elif args.project_dir:
-                gc.git_pull(
-                    project_dir=args.project_dir,
-                    remote=args.remote,
-                    branch=args.branch,
-                )
-            else:
-                # No --name and no project_dir: check if cwd has .git
-                if gc.find_git_dir():
-                    gc.git_pull(
-                        project_dir=None,
-                        remote=args.remote,
-                        branch=args.branch,
-                    )
-                else:
-                    # No .git in cwd, batch pull/clone all projects from config
-                    gc.git_pull_all_projects(
-                        config_path=args.config,
-                        remote=args.remote,
-                        branch=args.branch,
-                    )
+    else:
+        _print_help(args)
+
+
+def handle_epub(args: argparse.Namespace, parser: argparse.ArgumentParser) -> None:
+    epub_cmd = getattr(args, "epub_command", None)
+    if epub_cmd == "convert":
+        em.convert_epub_to_markdown(
+            epub_file=args.epub_file,
+            output_dir=args.output,
+        )
+    else:
+        _print_help(args)
+
+
+def handle_backup(args: argparse.Namespace, parser: argparse.ArgumentParser) -> None:
+    backup_cmd = getattr(args, "backup_command", None)
+    if backup_cmd == "copy":
+        bpm.copy_directory_with_backup(
+            source_dir=args.source_dir,
+            target_dir=args.target_dir,
+            backup_dir_name=args.backup_dir_name,
+            backup_log_name=args.backup_log_name,
+            commit_message=args.commit_message,
+        )
+    else:
+        _print_help(args)
+
+
+def handle_le(args: argparse.Namespace, parser: argparse.ArgumentParser) -> None:
+    import zxtoolbox.letsencrypt as le
+
+    le_cmd = getattr(args, "le_command", None)
+    provider_config = None
+    if getattr(args, "provider_config", None):
+        try:
+            provider_config = json.loads(args.provider_config)
+        except json.JSONDecodeError as exc:
+            print(f"Error: --provider-config must be valid JSON: {exc}")
+            return
+
+    if getattr(args, "output", None):
+        out_dir = Path(args.output).resolve()
+    else:
+        try:
+            le_config = cm.load_le_config()
+            default_out = le_config.get("output_dir", "out_le")
+        except FileNotFoundError:
+            default_out = "out_le"
+        out_dir = Path(default_out).resolve()
+
+    if le_cmd == "issue":
+        try:
+            le_cfg = cm.load_le_config(config_path=getattr(args, "le_config", None))
+        except (FileNotFoundError, ValueError):
+            le_cfg = {}
+
+        issue_provider = args.provider or le_cfg.get("provider", "manual")
+        issue_challenge = args.challenge or le_cfg.get("challenge_type", "dns-01")
+        issue_staging = not args.production if args.production is not None else le_cfg.get("staging", True)
+        issue_email = args.email if args.email is not None else le_cfg.get("email", "")
+        issue_provider_config = provider_config if provider_config is not None else le_cfg.get("provider_config") or None
+        issue_out_dir = Path(args.output).resolve() if args.output else Path(le_cfg.get("output_dir", "out_le")).resolve()
+
+        le.obtain_cert(
+            out_dir=issue_out_dir,
+            domains=args.domain,
+            provider=issue_provider,
+            provider_config=issue_provider_config,
+            staging=issue_staging,
+            email=issue_email,
+            key_size=args.key_size,
+            challenge_type=issue_challenge,
+        )
+    elif le_cmd == "renew":
+        le.renew_certs(
+            out_dir=out_dir,
+            provider_config=provider_config,
+            dry_run=args.dry_run,
+        )
+    elif le_cmd == "batch":
+        le.batch_obtain_certs(
+            config_path=args.le_config,
+            dry_run=args.dry_run,
+        )
+    elif le_cmd == "status":
+        le.show_status(out_dir)
+    elif le_cmd == "revoke":
+        le.revoke_cert(
+            out_dir=out_dir,
+            domain=args.domain,
+            provider=args.provider,
+            provider_config=provider_config,
+        )
+    elif le_cmd == "init":
+        le.init(out_dir)
+    elif le_cmd == "cron":
+        cron_cmd = getattr(args, "cron_command", None)
+        if cron_cmd == "install":
+            le.install_cronjob()
+        elif cron_cmd == "uninstall":
+            le.uninstall_cronjob()
         else:
-            git_parser.print_help()
-        return
+            _print_help(args)
+    else:
+        _print_help(args)
 
-    # ========== le 子命令分发 ==========
-    if args.command == "le":
-        import zxtoolbox.letsencrypt as le
 
-        le_cmd = getattr(args, "le_command", None)
+def handle_feishu(args: argparse.Namespace, parser: argparse.ArgumentParser) -> None:
+    from zxtoolbox.feishu_client import FeishuClient, create_client_from_config
+    from zxtoolbox.config_manager import load_feishu_config
 
-        provider_config = None
-        if getattr(args, "provider_config", None):
-            try:
-                provider_config = json.loads(args.provider_config)
-            except json.JSONDecodeError as e:
-                print(f"错误: --provider-config 必须是有效的 JSON: {e}")
-                return
+    feishu_cmd = getattr(args, "feishu_command", None)
+    if feishu_cmd == "start":
+        if args.app_id and args.app_secret:
+            client = FeishuClient(app_id=args.app_id, app_secret=args.app_secret)
+            client.start()
+            return
 
-        # 未指定 --output 时，从 zxtool.toml 配置文件读取默认输出目录
-        if getattr(args, "output", None):
-            out_dir = Path(args.output).resolve()
-        else:
-            try:
-                le_config = cm.load_le_config()
-                default_out = le_config.get("output_dir", "out_le")
-            except FileNotFoundError:
-                default_out = "out_le"
-            out_dir = Path(default_out).resolve()
-
-        if le_cmd == "issue":
-            # 尝试从配置文件加载默认值，未指定的参数用配置文件值回退
-            try:
-                le_cfg = cm.load_le_config(config_path=getattr(args, "le_config", None))
-            except (FileNotFoundError, ValueError):
-                le_cfg = {}
-
-            issue_provider = args.provider or le_cfg.get("provider", "manual")
-            issue_challenge = args.challenge or le_cfg.get("challenge_type", "dns-01")
-            issue_staging = not args.production if args.production is not None else le_cfg.get("staging", True)
-            issue_email = args.email if args.email is not None else le_cfg.get("email", "")
-
-            # provider_config: 命令行优先，否则用配置文件
-            issue_provider_config = provider_config
-            if issue_provider_config is None:
-                issue_provider_config = le_cfg.get("provider_config") or None
-
-            # output: 命令行优先，否则用配置文件
-            if args.output:
-                issue_out_dir = Path(args.output).resolve()
+        try:
+            client = create_client_from_config(args.config)
+            client.start()
+        except FileNotFoundError as exc:
+            print(f"[ERROR] config file not found: {exc}")
+            print("Run `zxtool config init` or provide --app-id and --app-secret.")
+        except ValueError as exc:
+            print(f"[ERROR] invalid configuration: {exc}")
+    elif feishu_cmd == "check":
+        try:
+            config = load_feishu_config(args.config)
+            if config.get("app_id") and config.get("app_secret"):
+                print("[OK] Feishu configuration is valid")
+                print(f"  App ID: {config['app_id'][:10]}...")
+                print("  Status: configured")
             else:
-                issue_out_dir = Path(le_cfg.get("output_dir", "out_le")).resolve()
+                print("[WARN] Feishu configuration is incomplete")
+                print("Add the following to zxtool.toml:")
+                print("[feishu]")
+                print('app_id = "cli_xxxxxxxxxxxxx"')
+                print('app_secret = "xxxxxxxxxxxxxxxxxxxx"')
+        except FileNotFoundError:
+            print("[ERROR] config file not found")
+            print("Run `zxtool config init` to initialize configuration.")
+    else:
+        _print_help(args)
 
-            challenge_type = issue_challenge
-            le.obtain_cert(
-                out_dir=issue_out_dir,
-                domains=args.domain,
-                provider=issue_provider,
-                provider_config=issue_provider_config,
-                staging=issue_staging,
-                email=issue_email,
-                key_size=args.key_size,
-                challenge_type=challenge_type,
-            )
-        elif le_cmd == "renew":
-            le.renew_certs(
-                out_dir=out_dir,
-                provider_config=provider_config,
-                dry_run=args.dry_run,
-            )
-        elif le_cmd == "batch":
-            le.batch_obtain_certs(
-                config_path=args.le_config,
-                dry_run=args.dry_run,
-            )
-        elif le_cmd == "status":
-            le.show_status(out_dir)
-        elif le_cmd == "revoke":
-            le.revoke_cert(
-                out_dir=out_dir,
-                domain=args.domain,
-                provider=args.provider,
-                provider_config=provider_config,
-            )
-        elif le_cmd == "init":
-            le.init(out_dir)
-        elif le_cmd == "cron":
-            cron_cmd = getattr(args, "cron_command", None)
-            if cron_cmd == "install":
-                le.install_cronjob()
-            elif cron_cmd == "uninstall":
-                le.uninstall_cronjob()
-            else:
-                le_cron_parser.print_help()
-        else:
-            le_parser.print_help()
-        return
 
-    # ========== feishu 子命令分发 ==========
-    if args.command == "feishu":
-        from zxtoolbox.feishu_client import FeishuClient, create_client_from_config
-
-        feishu_cmd = getattr(args, "feishu_command", None)
-
-        if feishu_cmd == "start":
-            # 优先使用命令行参数，其次使用配置文件
-            app_id = args.app_id
-            app_secret = args.app_secret
-            config_path = args.config
-
-            if app_id and app_secret:
-                # 使用命令行参数
-                client = FeishuClient(app_id=app_id, app_secret=app_secret)
-                client.start()
-            else:
-                # 使用配置文件
-                try:
-                    client = create_client_from_config(config_path)
-                    client.start()
-                except FileNotFoundError as e:
-                    print(f"[ERROR] 配置文件不存在: {e}")
-                    print("请使用 'zxtool config init' 初始化配置，或提供 --app-id 和 --app-secret 参数")
-                except ValueError as e:
-                    print(f"[ERROR] 配置错误: {e}")
-        elif feishu_cmd == "check":
-            # 检查配置
-            from zxtoolbox.config_manager import load_feishu_config
-
-            try:
-                config = load_feishu_config(args.config)
-                if config.get("app_id") and config.get("app_secret"):
-                    print(f"[OK] 飞书配置正常")
-                    print(f"  App ID: {config['app_id'][:10]}...")
-                    print(f"  状态: 已配置")
-                else:
-                    print("[WARN] 飞书配置不完整")
-                    print("请在 zxtool.toml 中添加:")
-                    print("[feishu]")
-                    print('app_id = "cli_xxxxxxxxxxxxx"')
-                    print('app_secret = "xxxxxxxxxxxxxxxxxxxx"')
-            except FileNotFoundError:
-                print("[ERROR] 配置文件不存在")
-                print("请运行 'zxtool config init' 初始化配置")
-        else:
-            feishu_parser.print_help()
-        return
-
-    # 无子命令时显示帮助
-    parser.print_help()
+def _print_help(args: argparse.Namespace) -> None:
+    """Print help for the most specific parser attached to current args."""
+    help_parser = getattr(args, "_command_parser", None)
+    if help_parser is not None:
+        help_parser.print_help()
 
 
 if __name__ == "__main__":

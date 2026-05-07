@@ -130,6 +130,68 @@ class TestCliVideo:
                 cli.main()
 
 
+class TestCliEpub:
+    """Test CLI epub subcommand."""
+
+    @patch("zxtoolbox.logging_manager.setup_logging", return_value=None)
+    def test_epub_no_subcommand_shows_help(self, mock_setup_log, capsys):
+        """Test epub without subcommand shows help."""
+        with patch.object(sys, "argv", ["zxtool", "epub"]):
+            cli.main()
+        captured = capsys.readouterr()
+        assert "epub" in captured.out.lower()
+
+    @patch("zxtoolbox.logging_manager.setup_logging", return_value=None)
+    @patch("zxtoolbox.epub_manager.convert_epub_to_markdown")
+    def test_epub_convert(self, mock_convert, mock_setup_log, capsys):
+        """Test epub convert command."""
+        with patch.object(sys, "argv", ["zxtool", "epub", "convert", "book.epub", "-o", "out_dir"]):
+            cli.main()
+        mock_convert.assert_called_once_with(epub_file="book.epub", output_dir="out_dir")
+
+
+class TestCliBackup:
+    """Test CLI backup subcommand."""
+
+    @patch("zxtoolbox.logging_manager.setup_logging", return_value=None)
+    def test_backup_no_subcommand_shows_help(self, mock_setup_log, capsys):
+        """Test backup without subcommand shows help."""
+        with patch.object(sys, "argv", ["zxtool", "backup"]):
+            cli.main()
+        captured = capsys.readouterr()
+        assert "backup" in captured.out.lower()
+
+    @patch("zxtoolbox.logging_manager.setup_logging", return_value=None)
+    @patch("zxtoolbox.backup_manager.copy_directory_with_backup")
+    def test_backup_copy(self, mock_copy, mock_setup_log, capsys):
+        """Test backup copy command."""
+        with patch.object(
+            sys,
+            "argv",
+            [
+                "zxtool",
+                "backup",
+                "copy",
+                "src_dir",
+                "dst_dir",
+                "--backup-dir-name",
+                ".bak",
+                "--backup-log-name",
+                "records.md",
+                "--commit-message",
+                "sync files",
+            ],
+        ):
+            cli.main()
+        mock_copy.assert_called_once_with(
+            source_dir="src_dir",
+            target_dir="dst_dir",
+            backup_dir_name=".bak",
+            backup_log_name="records.md",
+            commit_message="sync files",
+        )
+
+
 class TestCliSsl:
     """Test CLI ssl subcommand."""
 
