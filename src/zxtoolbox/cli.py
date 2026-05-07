@@ -13,6 +13,7 @@ import zxtoolbox.computer_info as cpi
 import zxtoolbox.config_manager as cm
 import zxtoolbox.epub_manager as em
 import zxtoolbox.git_config as gc
+import zxtoolbox.http_server as hs
 import zxtoolbox.logging_manager as lm
 import zxtoolbox.pyopt_2fa as opt2fa
 import zxtoolbox.ssl_cert as ssl
@@ -23,10 +24,15 @@ def build_parser() -> argparse.ArgumentParser:
     """Build the top-level CLI parser."""
     parser = argparse.ArgumentParser(
         description="ZX Toolbox - cross-platform utilities for repetitive tasks.",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.set_defaults(_command_parser=parser)
-    parser.add_argument("-v", "--version", action="version", version=f"zxtoolbox {__version__}")
+    parser.add_argument(
+        "-v",
+        "--version",
+        action="version",
+        version=f"zxtoolbox {__version__}",
+    )
+
     subparsers = parser.add_subparsers(dest="command", help="available commands")
 
     ci_parser = subparsers.add_parser("ci", help="show computer information")
@@ -42,6 +48,7 @@ def build_parser() -> argparse.ArgumentParser:
     video_parser.add_argument("-u", "--url", type=str, required=True, help="video URL")
     video_parser.add_argument("-o", "--output", type=str, default=None, help="output path")
 
+    _build_http_parser(subparsers)
     _build_ssl_parser(subparsers)
     _build_mkdocs_parser(subparsers)
     _build_nginx_parser(subparsers)
@@ -53,6 +60,18 @@ def build_parser() -> argparse.ArgumentParser:
     _build_feishu_parser(subparsers)
 
     return parser
+
+
+def _build_http_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
+    http_parser = subparsers.add_parser("http", help="serve static files over HTTP")
+    http_parser.set_defaults(_command_parser=http_parser)
+    http_subparsers = http_parser.add_subparsers(dest="http_command", help="http subcommands")
+
+    http_serve_parser = http_subparsers.add_parser("serve", help="start a static file HTTP server")
+    http_serve_parser.set_defaults(_command_parser=http_serve_parser)
+    http_serve_parser.add_argument("directory", nargs="?", default=".", help="directory to serve")
+    http_serve_parser.add_argument("--host", type=str, default="127.0.0.1", help="bind host")
+    http_serve_parser.add_argument("-p", "--port", type=int, default=8000, help="bind port")
 
 
 def _build_ssl_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
@@ -189,8 +208,18 @@ def _build_backup_parser(subparsers: argparse._SubParsersAction[argparse.Argumen
     backup_copy_parser.set_defaults(_command_parser=backup_copy_parser)
     backup_copy_parser.add_argument("source_dir", help="source directory")
     backup_copy_parser.add_argument("target_dir", help="target directory")
-    backup_copy_parser.add_argument("--backup-dir-name", type=str, default=bpm.DEFAULT_BACKUP_DIR_NAME, help="backup directory name for non-git targets")
-    backup_copy_parser.add_argument("--backup-log-name", type=str, default=bpm.DEFAULT_BACKUP_LOG_NAME, help="backup record filename")
+    backup_copy_parser.add_argument(
+        "--backup-dir-name",
+        type=str,
+        default=bpm.DEFAULT_BACKUP_DIR_NAME,
+        help="backup directory name for non-git targets",
+    )
+    backup_copy_parser.add_argument(
+        "--backup-log-name",
+        type=str,
+        default=bpm.DEFAULT_BACKUP_LOG_NAME,
+        help="backup record filename",
+    )
     backup_copy_parser.add_argument("--commit-message", type=str, default=None, help="custom git commit message")
 
 
@@ -240,8 +269,10 @@ def _build_le_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentPar
     le_cron_parser = le_subparsers.add_parser("cron", help="manage auto-renew scheduled tasks")
     le_cron_parser.set_defaults(_command_parser=le_cron_parser)
     le_cron_subparsers = le_cron_parser.add_subparsers(dest="cron_command", help="cron subcommands")
+
     le_cron_install_parser = le_cron_subparsers.add_parser("install", help="install auto-renew task")
     le_cron_install_parser.set_defaults(_command_parser=le_cron_install_parser)
+
     le_cron_uninstall_parser = le_cron_subparsers.add_parser("uninstall", help="uninstall auto-renew task")
     le_cron_uninstall_parser.set_defaults(_command_parser=le_cron_uninstall_parser)
 
@@ -283,46 +314,64 @@ def main() -> None:
         vd.download_with_progress(args.url, args.output)
         return
 
+    if args.command == "http":
+        handle_http(args)
+        return
+
     if args.command == "ssl":
-        handle_ssl(args, parser)
+        handle_ssl(args)
         return
 
     if args.command == "mkdocs":
-        handle_mkdocs(args, parser)
+        handle_mkdocs(args)
         return
 
     if args.command == "nginx":
-        handle_nginx(args, parser)
+        handle_nginx(args)
         return
 
     if args.command == "config":
-        handle_config(args, parser)
+        handle_config(args)
         return
 
     if args.command == "git":
-        handle_git(args, parser)
+        handle_git(args)
         return
 
     if args.command == "epub":
-        handle_epub(args, parser)
+        handle_epub(args)
         return
 
     if args.command == "backup":
-        handle_backup(args, parser)
+        handle_backup(args)
         return
 
     if args.command == "le":
-        handle_le(args, parser)
+        handle_le(args)
         return
 
     if args.command == "feishu":
-        handle_feishu(args, parser)
+        handle_feishu(args)
         return
 
-    parser.print_help()
+    _print_help(args)
 
 
-def handle_ssl(args: argparse.Namespace, parser: argparse.ArgumentParser) -> None:
+def handle_http(args: argparse.Namespace) -> None:
+    """Dispatch http subcommands."""
+    http_cmd = getattr(args, "http_command", None)
+    if http_cmd == "serve":
+        hs.serve_directory(
+            directory=args.directory,
+            host=args.host,
+            port=args.port,
+        )
+    else:
+        _print_help(args)
+
+
+def handle_ssl(args: argparse.Namespace) -> None:
+    """Dispatch ssl subcommands."""
     ssl_cmd = getattr(args, "ssl_command", None)
     if ssl_cmd == "init":
         out_dir = Path(args.output).resolve() if args.output else Path("out").resolve()
@@ -337,7 +386,8 @@ def handle_ssl(args: argparse.Namespace, parser: argparse.ArgumentParser) -> Non
         _print_help(args)
 
 
-def handle_mkdocs(args: argparse.Namespace, parser: argparse.ArgumentParser) -> None:
+def handle_mkdocs(args: argparse.Namespace) -> None:
+    """Dispatch mkdocs subcommands."""
     import zxtoolbox.mkdocs_manager as mdm
 
     mkdocs_cmd = getattr(args, "mkdocs_command", None)
@@ -374,7 +424,8 @@ def handle_mkdocs(args: argparse.Namespace, parser: argparse.ArgumentParser) -> 
         _print_help(args)
 
 
-def handle_nginx(args: argparse.Namespace, parser: argparse.ArgumentParser) -> None:
+def handle_nginx(args: argparse.Namespace) -> None:
+    """Dispatch nginx subcommands."""
     import zxtoolbox.nginx_manager as ngm
 
     nginx_cmd = getattr(args, "nginx_command", None)
@@ -406,7 +457,8 @@ def handle_nginx(args: argparse.Namespace, parser: argparse.ArgumentParser) -> N
         _print_help(args)
 
 
-def handle_config(args: argparse.Namespace, parser: argparse.ArgumentParser) -> None:
+def handle_config(args: argparse.Namespace) -> None:
+    """Dispatch config subcommands."""
     config_cmd = getattr(args, "config_command", None)
     if config_cmd == "init":
         cm.interactive_init(config_path=args.path, force=args.force)
@@ -416,7 +468,8 @@ def handle_config(args: argparse.Namespace, parser: argparse.ArgumentParser) -> 
         _print_help(args)
 
 
-def handle_git(args: argparse.Namespace, parser: argparse.ArgumentParser) -> None:
+def handle_git(args: argparse.Namespace) -> None:
+    """Dispatch git subcommands."""
     git_cmd = getattr(args, "git_command", None)
     if git_cmd == "config":
         config_cmd = getattr(args, "config_command", None)
@@ -465,7 +518,8 @@ def handle_git(args: argparse.Namespace, parser: argparse.ArgumentParser) -> Non
         _print_help(args)
 
 
-def handle_epub(args: argparse.Namespace, parser: argparse.ArgumentParser) -> None:
+def handle_epub(args: argparse.Namespace) -> None:
+    """Dispatch epub subcommands."""
     epub_cmd = getattr(args, "epub_command", None)
     if epub_cmd == "convert":
         try:
@@ -479,7 +533,8 @@ def handle_epub(args: argparse.Namespace, parser: argparse.ArgumentParser) -> No
         _print_help(args)
 
 
-def handle_backup(args: argparse.Namespace, parser: argparse.ArgumentParser) -> None:
+def handle_backup(args: argparse.Namespace) -> None:
+    """Dispatch backup subcommands."""
     backup_cmd = getattr(args, "backup_command", None)
     if backup_cmd == "copy":
         bpm.copy_directory_with_backup(
@@ -493,7 +548,8 @@ def handle_backup(args: argparse.Namespace, parser: argparse.ArgumentParser) -> 
         _print_help(args)
 
 
-def handle_le(args: argparse.Namespace, parser: argparse.ArgumentParser) -> None:
+def handle_le(args: argparse.Namespace) -> None:
+    """Dispatch Let's Encrypt subcommands."""
     import zxtoolbox.letsencrypt as le
 
     le_cmd = getattr(args, "le_command", None)
@@ -509,7 +565,7 @@ def handle_le(args: argparse.Namespace, parser: argparse.ArgumentParser) -> None
         out_dir = Path(args.output).resolve()
     else:
         try:
-            le_config = cm.load_le_config()
+            le_config = cm.load_le_config(getattr(args, "le_config", None))
             default_out = le_config.get("output_dir", "out_le")
         except FileNotFoundError:
             default_out = "out_le"
@@ -572,9 +628,10 @@ def handle_le(args: argparse.Namespace, parser: argparse.ArgumentParser) -> None
         _print_help(args)
 
 
-def handle_feishu(args: argparse.Namespace, parser: argparse.ArgumentParser) -> None:
-    from zxtoolbox.feishu_client import FeishuClient, create_client_from_config
+def handle_feishu(args: argparse.Namespace) -> None:
+    """Dispatch feishu subcommands."""
     from zxtoolbox.config_manager import load_feishu_config
+    from zxtoolbox.feishu_client import FeishuClient, create_client_from_config
 
     feishu_cmd = getattr(args, "feishu_command", None)
     if feishu_cmd == "start":
