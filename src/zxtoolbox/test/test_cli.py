@@ -149,6 +149,15 @@ class TestCliEpub:
             cli.main()
         mock_convert.assert_called_once_with(epub_file="book.epub", output_dir="out_dir")
 
+    @patch("zxtoolbox.logging_manager.setup_logging", return_value=None)
+    @patch("zxtoolbox.epub_manager.convert_epub_to_markdown", side_effect=ValueError("Invalid EPUB file: bad data"))
+    def test_epub_convert_prints_user_friendly_error(self, mock_convert, mock_setup_log, capsys):
+        """Test epub convert shows a readable error instead of traceback."""
+        with patch.object(sys, "argv", ["zxtool", "epub", "convert", "broken.epub"]):
+            cli.main()
+        captured = capsys.readouterr()
+        assert "[ERROR] Invalid EPUB file: bad data" in captured.out
+
 
 class TestCliBackup:
     """Test CLI backup subcommand."""

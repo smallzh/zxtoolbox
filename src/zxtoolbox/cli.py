@@ -468,10 +468,13 @@ def handle_git(args: argparse.Namespace, parser: argparse.ArgumentParser) -> Non
 def handle_epub(args: argparse.Namespace, parser: argparse.ArgumentParser) -> None:
     epub_cmd = getattr(args, "epub_command", None)
     if epub_cmd == "convert":
-        em.convert_epub_to_markdown(
-            epub_file=args.epub_file,
-            output_dir=args.output,
-        )
+        try:
+            em.convert_epub_to_markdown(
+                epub_file=args.epub_file,
+                output_dir=args.output,
+            )
+        except (FileNotFoundError, ValueError) as exc:
+            print(f"[ERROR] {exc}")
     else:
         _print_help(args)
 

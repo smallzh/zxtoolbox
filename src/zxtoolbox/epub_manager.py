@@ -3,13 +3,20 @@
 from __future__ import annotations
 
 import html
+import io
 import posixpath
 import re
-import zipfile
+import struct
 from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import urldefrag
 import xml.etree.ElementTree as ET
+import zipfile
+import zlib
+
+from epublib import EPUB
+from epublib.exceptions import EPUBError, NotEPUBError
+from epublib.resources import Resource
 
 
 DOCUMENT_MEDIA_TYPES = {
@@ -62,11 +69,12 @@ class ManifestItem:
     full_path: str
     media_type: str
     properties: frozenset[str]
+    content: bytes
 
 
 @dataclass(frozen=True)
 class TocEntry:
-    """A TOC entry extracted from nav.xhtml or toc.ncx."""
+    """A TOC entry extracted from the EPUB navigation structures."""
 
     title: str
     full_path: str
@@ -88,7 +96,6 @@ class ChapterPlan:
 class EpubBook:
     """Parsed EPUB package metadata."""
 
-    opf_path: str
     manifest: dict[str, ManifestItem]
     spine: list[ManifestItem]
     toc_entries: list[TocEntry]
@@ -114,6 +121,14 @@ def convert_epub_to_markdown(
     if not epub_path.is_file():
         raise ValueError(f"EPUB path is not a file: {epub_path}")
 
+    book = _load_book(epub_path)
+    chapter_items = [
+        item for item in book.spine
+        if item.media_type in DOCUMENT_MEDIA_TYPES
+    ]
+    if not chapter_items:
+        raise ValueError("The EPUB file does not contain any readable chapter documents.")
+
     out_dir = Path(output_dir).resolve() if output_dir else epub_path.with_name(f"{epub_path.stem}_markdown")
     chapters_dir = out_dir / chapters_dir_name
     assets_dir = out_dir / assets_dir_name
@@ -121,52 +136,40 @@ def convert_epub_to_markdown(
     chapters_dir.mkdir(parents=True, exist_ok=True)
     assets_dir.mkdir(parents=True, exist_ok=True)
 
-    with zipfile.ZipFile(epub_path) as archive:
-        book = _load_book(archive)
-        chapter_items = [
-            item for item in book.spine
-            if item.media_type in DOCUMENT_MEDIA_TYPES
-        ]
-        if not chapter_items:
-            raise ValueError("The EPUB file does not contain any readable chapter documents.")
+    asset_output_map = _extract_assets(
+        manifest=book.manifest,
+        output_assets_dir=assets_dir,
+        assets_dir_name=assets_dir_name,
+    )
 
-        asset_output_map = _extract_assets(
-            archive=archive,
-            manifest=book.manifest,
-            output_assets_dir=assets_dir,
-            opf_path=book.opf_path,
-            assets_dir_name=assets_dir_name,
-        )
+    title_map = _build_toc_title_map(book.toc_entries)
+    plans = _build_chapter_plans(chapter_items, title_map)
+    chapter_output_map = {
+        plan.item.full_path: f"{chapters_dir_name}/{plan.filename}"
+        for plan in plans
+    }
 
-        title_map = _build_toc_title_map(book.toc_entries)
-        plans = _build_chapter_plans(archive, chapter_items, title_map)
-        chapter_output_map = {
-            plan.item.full_path: f"{chapters_dir_name}/{plan.filename}"
-            for plan in plans
-        }
-
-        for plan in plans:
-            raw_document = archive.read(plan.item.full_path)
-            markdown = _render_document(
-                document_bytes=raw_document,
-                current_document_path=plan.item.full_path,
-                current_output_path=chapter_output_map[plan.item.full_path],
-                chapter_output_map=chapter_output_map,
-                asset_output_map=asset_output_map,
-            ).strip()
-
-            if not _starts_with_heading(markdown):
-                markdown = f"# {plan.title}\n\n{markdown}" if markdown else f"# {plan.title}\n"
-
-            (chapters_dir / plan.filename).write_text(f"{markdown.rstrip()}\n", encoding="utf-8")
-
-        toc_path = out_dir / toc_filename
-        toc_content = _build_toc_markdown(
-            toc_entries=book.toc_entries,
-            plans=plans,
+    for plan in plans:
+        markdown = _render_document(
+            document_bytes=plan.item.content,
+            current_document_path=plan.item.full_path,
+            current_output_path=chapter_output_map[plan.item.full_path],
             chapter_output_map=chapter_output_map,
-        )
-        toc_path.write_text(toc_content, encoding="utf-8")
+            asset_output_map=asset_output_map,
+        ).strip()
+
+        if not _starts_with_heading(markdown):
+            markdown = f"# {plan.title}\n\n{markdown}" if markdown else f"# {plan.title}\n"
+
+        (chapters_dir / plan.filename).write_text(f"{markdown.rstrip()}\n", encoding="utf-8")
+
+    toc_path = out_dir / toc_filename
+    toc_content = _build_toc_markdown(
+        toc_entries=book.toc_entries,
+        plans=plans,
+        chapter_output_map=chapter_output_map,
+    )
+    toc_path.write_text(toc_content, encoding="utf-8")
 
     print(f"[OK] EPUB converted: {epub_path}")
     print(f"  output:   {out_dir}")
@@ -176,92 +179,103 @@ def convert_epub_to_markdown(
     return out_dir
 
 
-def _load_book(archive: zipfile.ZipFile) -> EpubBook:
+def _load_book(epub_path: Path) -> EpubBook:
     """Load package metadata, manifest, spine, and TOC."""
-    container_root = ET.fromstring(archive.read("META-INF/container.xml"))
-    rootfile = None
-    for element in container_root.iter():
-        if _tag_name(element.tag) == "rootfile":
-            rootfile = element
-            break
-    if rootfile is None:
-        raise ValueError("Invalid EPUB: META-INF/container.xml does not contain a rootfile entry.")
+    temp_epub_path: Path | None = None
 
-    opf_path = rootfile.attrib.get("full-path", "").strip()
-    if not opf_path:
-        raise ValueError("Invalid EPUB: missing OPF package path.")
+    try:
+        try:
+            parsed_book = EPUB(epub_path)
+        except NotEPUBError as exc:
+            repaired_epub_path = _repair_epub_if_possible(epub_path)
+            if repaired_epub_path is None:
+                raise ValueError(f"Invalid EPUB file: {exc}") from exc
+            temp_epub_path = repaired_epub_path
+            parsed_book = EPUB(repaired_epub_path)
 
-    package_root = ET.fromstring(archive.read(opf_path))
-    opf_dir = posixpath.dirname(opf_path)
+        manifest = _build_manifest(parsed_book)
+        spine = _build_spine(parsed_book, manifest)
+        toc_entries = _load_toc_entries(parsed_book)
 
-    manifest: dict[str, ManifestItem] = {}
-    for item in package_root.iter():
-        if _tag_name(item.tag) != "item":
-            continue
-
-        item_id = item.attrib.get("id", "").strip()
-        href = item.attrib.get("href", "").strip()
-        media_type = item.attrib.get("media-type", "").strip()
-        if not item_id or not href or not media_type:
-            continue
-
-        manifest[item_id] = ManifestItem(
-            item_id=item_id,
-            href=href,
-            full_path=_normalize_posix_path(opf_dir, href),
-            media_type=media_type,
-            properties=frozenset(filter(None, item.attrib.get("properties", "").split())),
+        return EpubBook(
+            manifest=manifest,
+            spine=spine,
+            toc_entries=toc_entries,
         )
+    except (EPUBError, NotEPUBError, OSError, ET.ParseError, UnicodeDecodeError, zipfile.BadZipFile) as exc:
+        raise ValueError(f"Invalid EPUB file: {exc}") from exc
+    finally:
+        if "parsed_book" in locals():
+            parsed_book.close()
+        if temp_epub_path is not None:
+            try:
+                temp_epub_path.unlink(missing_ok=True)
+            except OSError:
+                pass
 
+
+def _build_manifest(parsed_book: EPUB) -> dict[str, ManifestItem]:
+    """Build manifest items from epublib resources and metadata."""
+    manifest: dict[str, ManifestItem] = {}
+
+    for manifest_item in parsed_book.manifest.items:
+        full_path = _normalize_posix_path("", str(manifest_item.filename))
+        resource = _get_resource_by_filename(parsed_book, full_path)
+        if resource is None:
+            continue
+
+        item = ManifestItem(
+            item_id=str(manifest_item.id),
+            href=str(manifest_item.href).replace("\\", "/"),
+            full_path=full_path,
+            media_type=str(manifest_item.media_type),
+            properties=frozenset(manifest_item.properties or []),
+            content=resource.content,
+        )
+        manifest[item.item_id] = item
+
+    return manifest
+
+
+def _build_spine(parsed_book: EPUB, manifest: dict[str, ManifestItem]) -> list[ManifestItem]:
+    """Build the reading order from the EPUB spine."""
     spine: list[ManifestItem] = []
-    toc_id = ""
-    for element in package_root.iter():
-        if _tag_name(element.tag) != "spine":
-            continue
-        toc_id = element.attrib.get("toc", "").strip()
-        for child in element:
-            if _tag_name(child.tag) != "itemref":
-                continue
-            idref = child.attrib.get("idref", "").strip()
-            manifest_item = manifest.get(idref)
-            if manifest_item is not None:
-                spine.append(manifest_item)
-        break
 
-    toc_entries = _load_toc_entries(
-        archive=archive,
-        manifest=manifest,
-        toc_id=toc_id,
-    )
+    for spine_item in parsed_book.spine.items:
+        manifest_item = manifest.get(str(spine_item.idref))
+        if manifest_item is not None:
+            spine.append(manifest_item)
 
-    return EpubBook(
-        opf_path=opf_path,
-        manifest=manifest,
-        spine=spine,
-        toc_entries=toc_entries,
-    )
+    return spine
 
 
-def _load_toc_entries(
-    archive: zipfile.ZipFile,
-    manifest: dict[str, ManifestItem],
-    toc_id: str,
-) -> list[TocEntry]:
-    """Load TOC entries from nav.xhtml or toc.ncx."""
-    for item in manifest.values():
-        if "nav" not in item.properties:
-            continue
-        return _parse_nav_toc(archive.read(item.full_path), item.full_path)
+def _load_toc_entries(parsed_book: EPUB) -> list[TocEntry]:
+    """Load TOC entries from nav.xhtml or toc.ncx resources."""
+    for manifest_item in parsed_book.manifest.items:
+        if manifest_item.properties and "nav" in manifest_item.properties:
+            full_path = _normalize_posix_path("", str(manifest_item.filename))
+            resource = _get_resource_by_filename(parsed_book, full_path)
+            if resource is not None:
+                return _parse_nav_toc(resource.content, full_path)
 
-    if toc_id and toc_id in manifest:
-        toc_item = manifest[toc_id]
-        return _parse_ncx_toc(archive.read(toc_item.full_path), toc_item.full_path)
-
-    for item in manifest.values():
-        if item.media_type == "application/x-dtbncx+xml":
-            return _parse_ncx_toc(archive.read(item.full_path), item.full_path)
+    for manifest_item in parsed_book.manifest.items:
+        if str(manifest_item.media_type) == "application/x-dtbncx+xml":
+            full_path = _normalize_posix_path("", str(manifest_item.filename))
+            resource = _get_resource_by_filename(parsed_book, full_path)
+            if resource is not None:
+                return _parse_ncx_toc(resource.content, full_path)
 
     return []
+
+
+def _get_resource_by_filename(parsed_book: EPUB, filename: str) -> Resource | None:
+    """Find a resource by filename while normalizing Windows path separators."""
+    normalized_target = _normalize_posix_path("", filename)
+    for resource in parsed_book.resources:
+        resource_path = _normalize_posix_path("", resource.filename)
+        if resource_path == normalized_target:
+            return resource
+    return None
 
 
 def _parse_nav_toc(document_bytes: bytes, document_path: str) -> list[TocEntry]:
@@ -374,42 +388,40 @@ def _parse_ncx_toc(document_bytes: bytes, document_path: str) -> list[TocEntry]:
 
 
 def _extract_assets(
-    archive: zipfile.ZipFile,
     manifest: dict[str, ManifestItem],
     output_assets_dir: Path,
-    opf_path: str,
     assets_dir_name: str,
 ) -> dict[str, str]:
     """Extract static image assets and return EPUB-path to output-path mapping."""
     asset_output_map: dict[str, str] = {}
-    opf_dir = posixpath.dirname(opf_path)
 
     for item in manifest.values():
         if not item.media_type.startswith(IMAGE_MEDIA_PREFIX):
             continue
 
-        asset_relative = _sanitize_asset_relative_path(opf_dir, item.full_path)
+        asset_relative = _sanitize_asset_relative_path(item.full_path)
         output_path = output_assets_dir / asset_relative
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        output_path.write_bytes(archive.read(item.full_path))
+        output_path.write_bytes(item.content)
 
         asset_output_map[item.full_path] = f"{assets_dir_name}/{Path(asset_relative).as_posix()}"
 
     return asset_output_map
 
 
-def _sanitize_asset_relative_path(opf_dir: str, full_path: str) -> str:
+def _sanitize_asset_relative_path(full_path: str) -> str:
     """Build a safe relative path for extracted assets."""
-    try:
-        relative = posixpath.relpath(full_path, opf_dir or ".")
-    except ValueError:
-        relative = posixpath.basename(full_path)
+    relative = posixpath.normpath(full_path).lstrip("/")
 
     parts = []
     for part in relative.split("/"):
+        if part in {"", "."}:
+            continue
+        if part == "..":
+            part = "parent"
         sanitized = re.sub(r"[^A-Za-z0-9._-]", "_", part.strip()) or "asset"
         parts.append(sanitized)
-    return "/".join(parts)
+    return "/".join(parts) or "asset"
 
 
 def _build_toc_title_map(toc_entries: list[TocEntry]) -> dict[str, str]:
@@ -421,7 +433,6 @@ def _build_toc_title_map(toc_entries: list[TocEntry]) -> dict[str, str]:
 
 
 def _build_chapter_plans(
-    archive: zipfile.ZipFile,
     chapter_items: list[ManifestItem],
     title_map: dict[str, str],
 ) -> list[ChapterPlan]:
@@ -430,9 +441,9 @@ def _build_chapter_plans(
     plans: list[ChapterPlan] = []
 
     for index, item in enumerate(chapter_items, start=1):
-        title = title_map.get(item.full_path) or _extract_document_title(archive.read(item.full_path))
+        title = title_map.get(item.full_path) or _extract_document_title(item.content)
         if not title:
-            title = Path(item.href).stem
+            title = Path(item.href or item.full_path).stem
 
         slug = _unique_slug(_slugify(title), used_slugs, default=f"chapter-{index:02d}")
         filename = f"{index:02d}-{slug}.md"
@@ -494,7 +505,7 @@ def _build_toc_markdown(
     chapter_output_map: dict[str, str],
 ) -> str:
     """Build the top-level toc.md file."""
-    lines = ["# 目录", ""]
+    lines = ["# Table of Contents", ""]
 
     if toc_entries:
         written = False
@@ -825,3 +836,126 @@ def _unique_slug(slug: str, used_slugs: set[str], default: str) -> str:
         index += 1
     used_slugs.add(candidate)
     return candidate
+
+
+def _repair_epub_if_possible(epub_path: Path) -> Path | None:
+    """Rebuild a readable ZIP from local file headers when the central directory is broken."""
+    entries = _scan_local_file_entries(epub_path)
+    if not entries:
+        return None
+
+    names = {entry.filename for entry in entries}
+    if "META-INF/container.xml" not in names or "mimetype" not in names:
+        return None
+
+    workspace_temp_root = epub_path.parent / "dist" / "epub_repair"
+    workspace_temp_root.mkdir(parents=True, exist_ok=True)
+    temp_epub_path = workspace_temp_root / f"{epub_path.stem}.repaired.epub"
+
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as archive:
+        ordered_entries = sorted(
+            entries,
+            key=lambda entry: (
+                0 if entry.filename == "mimetype" else 1,
+                entry.offset,
+            ),
+        )
+        for entry in ordered_entries:
+            compress_type = zipfile.ZIP_STORED if entry.compression_method == 0 else zipfile.ZIP_DEFLATED
+            archive.writestr(entry.filename, entry.data, compress_type=compress_type)
+
+    temp_epub_path.write_bytes(buffer.getvalue())
+    return temp_epub_path
+
+
+@dataclass(frozen=True)
+class _LocalZipEntry:
+    """A ZIP member parsed from a local file header."""
+
+    filename: str
+    compression_method: int
+    data: bytes
+    offset: int
+
+
+def _scan_local_file_entries(epub_path: Path) -> list[_LocalZipEntry]:
+    """Scan ZIP local file headers without relying on the central directory."""
+    data = epub_path.read_bytes()
+    size = len(data)
+    offset = 0
+    entries: list[_LocalZipEntry] = []
+    seen_names: set[str] = set()
+
+    while offset + 30 <= size:
+        if data[offset:offset + 4] != b"PK\x03\x04":
+            offset += 1
+            continue
+
+        try:
+            (
+                _version,
+                flag_bits,
+                compression_method,
+                _mod_time,
+                _mod_date,
+                _crc,
+                compressed_size,
+                _uncompressed_size,
+                filename_length,
+                extra_length,
+            ) = struct.unpack_from("<HHHHHIIIHH", data, offset + 4)
+        except struct.error:
+            break
+
+        if flag_bits & 0x08:
+            return []
+
+        header_end = offset + 30
+        filename_end = header_end + filename_length
+        extra_end = filename_end + extra_length
+        data_end = extra_end + compressed_size
+        if data_end > size:
+            break
+
+        raw_filename = data[header_end:filename_end]
+        try:
+            encoding = "utf-8" if flag_bits & 0x800 else "cp437"
+            filename = raw_filename.decode(encoding)
+        except UnicodeDecodeError:
+            offset += 1
+            continue
+
+        if filename.endswith("/"):
+            offset = data_end
+            continue
+
+        payload = data[extra_end:data_end]
+
+        try:
+            if compression_method == 0:
+                entry_data = payload
+            elif compression_method == 8:
+                entry_data = zlib.decompress(payload, -15)
+            else:
+                offset = data_end
+                continue
+        except Exception:
+            offset += 1
+            continue
+
+        normalized_name = filename.replace("\\", "/")
+        if normalized_name not in seen_names:
+            entries.append(
+                _LocalZipEntry(
+                    filename=normalized_name,
+                    compression_method=compression_method,
+                    data=entry_data,
+                    offset=offset,
+                )
+            )
+            seen_names.add(normalized_name)
+
+        offset = data_end
+
+    return entries

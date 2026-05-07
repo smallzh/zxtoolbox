@@ -5,7 +5,22 @@ from __future__ import annotations
 import zipfile
 from pathlib import Path
 
+import shutil
+
+import pytest
+
 from zxtoolbox.epub_manager import convert_epub_to_markdown
+
+
+@pytest.fixture
+def tmp_path():
+    root = Path("dist/test_tmp_epub").resolve()
+    if root.exists():
+        shutil.rmtree(root)
+    root.mkdir(parents=True, exist_ok=True)
+    yield root
+    if root.exists():
+        shutil.rmtree(root)
 
 
 def _write_sample_epub(epub_path: Path) -> None:
@@ -25,6 +40,11 @@ def _write_sample_epub(epub_path: Path) -> None:
             "OEBPS/content.opf",
             """<?xml version="1.0" encoding="utf-8"?>
 <package xmlns="http://www.idpf.org/2007/opf" unique-identifier="bookid" version="3.0">
+  <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+    <dc:title>Sample Book</dc:title>
+    <dc:language>en</dc:language>
+    <dc:identifier id="bookid">sample-book</dc:identifier>
+  </metadata>
   <manifest>
     <item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>
     <item id="chapter1" href="text/chapter1.xhtml" media-type="application/xhtml+xml"/>
@@ -108,3 +128,11 @@ def test_convert_epub_to_markdown_creates_expected_structure(tmp_path):
     assert "![Picture](../assets/images/pic.png)" in chapter1_text
     assert '<a id="part-two"></a>' in chapter2_text
     assert "[Back to intro](01-chapter-one.md#intro)" in chapter2_text
+
+
+def test_convert_epub_to_markdown_rejects_invalid_epub(tmp_path):
+    epub_path = tmp_path / "invalid.epub"
+    epub_path.write_text("not an epub", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="Invalid EPUB file"):
+        convert_epub_to_markdown(epub_path)
