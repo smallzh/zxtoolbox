@@ -15,6 +15,7 @@ import zxtoolbox.epub_manager as em
 import zxtoolbox.git_config as gc
 import zxtoolbox.http_server as hs
 import zxtoolbox.logging_manager as lm
+import zxtoolbox.mkpdf_manager as mpdf
 import zxtoolbox.pyopt_2fa as opt2fa
 import zxtoolbox.ssl_cert as ssl
 import zxtoolbox.video_download as vd
@@ -56,6 +57,7 @@ def build_parser() -> argparse.ArgumentParser:
     _build_git_parser(subparsers)
     _build_epub_parser(subparsers)
     _build_backup_parser(subparsers)
+    _build_mkpdf_parser(subparsers)
     _build_le_parser(subparsers)
     _build_feishu_parser(subparsers)
 
@@ -223,6 +225,41 @@ def _build_backup_parser(subparsers: argparse._SubParsersAction[argparse.Argumen
     backup_copy_parser.add_argument("--commit-message", type=str, default=None, help="custom git commit message")
 
 
+def _build_mkpdf_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
+    mkpdf_parser = subparsers.add_parser(
+        "mkpdf",
+        help="convert one Markdown file or Markdown directory into a PDF file",
+    )
+    mkpdf_parser.set_defaults(_command_parser=mkpdf_parser)
+    mkpdf_parser.add_argument("input_path", help="Markdown file path or directory path")
+    mkpdf_parser.add_argument(
+        "--file",
+        type=str,
+        default="README.md",
+        help="entry Markdown file inside a directory input; defaults to README.md",
+    )
+    mkpdf_parser.add_argument("-o", "--output", type=str, default=None, help="output PDF path or directory")
+    mkpdf_parser.add_argument("--title", type=str, default=None, help="document title override")
+    mkpdf_parser.add_argument("--browser", type=str, default=None, help="Chrome/Edge/Chromium executable path")
+    mkpdf_parser.add_argument(
+        "--mermaid-js",
+        type=str,
+        default=None,
+        help="Mermaid JavaScript path or URL; defaults to the bundled project asset",
+    )
+    mkpdf_parser.add_argument(
+        "--no-mermaid",
+        action="store_true",
+        help="disable Mermaid diagram rendering",
+    )
+    mkpdf_parser.add_argument(
+        "--render-wait-ms",
+        type=int,
+        default=mpdf.DEFAULT_RENDER_WAIT_MS,
+        help="browser render wait time in milliseconds before printing PDF",
+    )
+
+
 def _build_le_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
     le_parser = subparsers.add_parser("le", help="manage Let's Encrypt ACME v2 certificates")
     le_parser.set_defaults(_command_parser=le_parser)
@@ -344,6 +381,10 @@ def main() -> None:
 
     if args.command == "backup":
         handle_backup(args)
+        return
+
+    if args.command == "mkpdf":
+        handle_mkpdf(args)
         return
 
     if args.command == "le":
@@ -548,6 +589,23 @@ def handle_backup(args: argparse.Namespace) -> None:
         _print_help(args)
 
 
+def handle_mkpdf(args: argparse.Namespace) -> None:
+    """Dispatch mkpdf command."""
+    try:
+        mpdf.convert_markdown_to_pdf(
+            input_path=args.input_path,
+            output_path=args.output,
+            title=args.title,
+            directory_file=args.file,
+            browser_path=args.browser,
+            mermaid_js=args.mermaid_js,
+            enable_mermaid=not args.no_mermaid,
+            render_wait_ms=args.render_wait_ms,
+        )
+    except (FileNotFoundError, ValueError, RuntimeError) as exc:
+        print(f"[ERROR] {exc}")
+
+
 def handle_le(args: argparse.Namespace) -> None:
     """Dispatch Let's Encrypt subcommands."""
     import zxtoolbox.letsencrypt as le
@@ -567,14 +625,14 @@ def handle_le(args: argparse.Namespace) -> None:
         try:
             le_config = cm.load_le_config(getattr(args, "le_config", None))
             default_out = le_config.get("output_dir", "out_le")
-        except FileNotFoundError:
+        except (FileNotFoundError, PermissionError):
             default_out = "out_le"
         out_dir = Path(default_out).resolve()
 
     if le_cmd == "issue":
         try:
             le_cfg = cm.load_le_config(config_path=getattr(args, "le_config", None))
-        except (FileNotFoundError, ValueError):
+        except (FileNotFoundError, PermissionError, ValueError):
             le_cfg = {}
 
         issue_provider = args.provider or le_cfg.get("provider", "manual")

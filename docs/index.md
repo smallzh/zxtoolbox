@@ -11,6 +11,7 @@
 - **自签 SSL 证书**: 生成泛域名自签证书,支持多域名和 SAN,方便开发调试
 - **Let's Encrypt 证书**: 通过 ACME v2 协议获取免费证书,支持 DNS-01 自动验证和续签
 - **MkDocs 项目管理**: 批量构建和发布 MkDocs 文档站点,支持开发服务器预览
+- **Markdown 转 PDF**: 将单个 Markdown 或文档目录转换为 PDF,支持 Mermaid 图形
 - **HTTP 静态文件服务**: 快速启动本地静态文件 HTTP 服务,用于预览和临时共享目录
 - **Nginx 站点配置**: 根据配置自动生成和管理 Nginx 站点配置,支持 HTTPS 和批量发布
 - **TOTP 2FA 解析**: 解析 TOTP 双因素认证密钥
@@ -36,6 +37,7 @@ zxtool --help
 | --- | --- | --- |
 | `ci` | 显示计算机信息 | `zxtool ci --all` |
 | `mkdocs` | MkDocs 项目管理 | `zxtool mkdocs build ./docs-site` |
+| `mkpdf` | Markdown 转 PDF | `zxtool mkpdf ./docs -o ./dist/docs.pdf` |
 | `nginx` | Nginx 配置管理 | `zxtool nginx generate` |
 | `le` | Let's Encrypt 证书管理 | `zxtool le issue -d example.com` |
 | `ssl` | 自签 SSL 证书生成 | `zxtool ssl cert -d example.dev` |
@@ -60,6 +62,7 @@ toolbox/
 │   ├── http_server.md     # HTTP 静态文件服务文档
 │   ├── letsencrypt.md     # Let's Encrypt 证书文档
 │   ├── mkdocs_manager.md  # MkDocs 项目管理文档
+│   ├── mkpdf_manager.md   # Markdown 转 PDF 文档
 │   ├── nginx_manager.md   # Nginx 配置文档
 │   ├── ssl_cert.md        # SSL 证书生成文档
 │   ├── totp.md            # TOTP 2FA 文档
@@ -74,6 +77,7 @@ toolbox/
 │       ├── http_server.py      # HTTP 静态文件服务
 │       ├── letsencrypt.py      # Let's Encrypt 证书管理
 │       ├── mkdocs_manager.py   # MkDocs 项目管理
+│       ├── mkpdf_manager.py    # Markdown 转 PDF
 │       ├── nginx_manager.py    # Nginx 配置管理
 │       ├── pyopt_2fa.py        # 2FA 工具
 │       ├── ssl_cert.py         # SSL 证书生成
@@ -103,3 +107,4 @@ toolbox/
 | requests | HTTP 请求 | [requests.readthedocs.io](https://requests.readthedocs.io/) |
 | mkdocs | 文档站点构建 | [mkdocs.org](https://www.mkdocs.org/) |
 | mkdocs-smzhbook-theme | MkDocs smzhbook 主题 | [github.com](https://github.com/smallzh/mkdocs-smzhbook-theme) |
+| Markdown | Markdown 渲染 | [python-markdown.github.io](https://python-markdown.github.io/) |

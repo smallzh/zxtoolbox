@@ -14,7 +14,28 @@ English | [Chinese](./README_zh.md)
 uv tool install zxtoolbox
 ```
 
-## 0x02. Directory Structure
+## 0x02. Common Commands
+
+### Markdown to PDF
+
+```shell
+# Convert a single Markdown file
+zxtool mkpdf ./README.md
+
+# Merge a Markdown directory into one PDF
+zxtool mkpdf ./docs -o ./dist/docs.pdf
+```
+
+Notes:
+
+- Supports common Markdown styling: headings, lists, tables, blockquotes, code blocks, and images
+- In directory mode, it reads `README.md` by default, or a custom entry file via `--file`
+- Mermaid is bundled locally by default, so offline rendering works without a CDN
+- A local Edge, Chrome, or Chromium installation is required for headless PDF printing
+
+Full usage is documented in [docs/mkpdf_manager.md](./docs/mkpdf_manager.md).
+
+## 0x03. Directory Structure
 ```text
 toolbox/
 ├── doc/                    # Documentation directory
@@ -44,7 +65,7 @@ toolbox/
 └── uv.lock               # uv locked dependency versions
 ```
 
-## 0x03. Dependencies
+## 0x04. Dependencies
 
 ### Core Dependencies
 
@@ -63,8 +84,9 @@ toolbox/
 | requests | HTTP requests | [requests.readthedocs.io](https://requests.readthedocs.io/) |
 | mkdocs | Documentation site building | [mkdocs.org](https://www.mkdocs.org/) |
 | mkdocs-smzhbook-theme | MkDocs theme | [github.com](https://github.com/smallzh/mkdocs-smzhbook-theme) |
+| Markdown | Markdown rendering | [python-markdown.github.io](https://python-markdown.github.io/) |
 
-## 0x04. Running Unit Tests
+## 0x05. Running Unit Tests
 
 The project uses `pytest` as the testing framework. Test files are located in the `src/zxtoolbox/test/` directory.
 

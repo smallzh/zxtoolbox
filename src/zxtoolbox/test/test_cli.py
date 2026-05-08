@@ -243,6 +243,71 @@ class TestCliBackup:
         )
 
 
+class TestCliMkpdf:
+    """Test CLI mkpdf command."""
+
+    @patch("zxtoolbox.logging_manager.setup_logging", return_value=None)
+    @patch("zxtoolbox.mkpdf_manager.convert_markdown_to_pdf")
+    def test_mkpdf_basic(self, mock_convert, _mock_setup_log):
+        with patch.object(sys, "argv", ["zxtool", "mkpdf", "docs/index.md"]):
+            cli.main()
+        mock_convert.assert_called_once_with(
+            input_path="docs/index.md",
+            output_path=None,
+            title=None,
+            directory_file="README.md",
+            browser_path=None,
+            mermaid_js=None,
+            enable_mermaid=True,
+            render_wait_ms=5000,
+        )
+
+    @patch("zxtoolbox.logging_manager.setup_logging", return_value=None)
+    @patch("zxtoolbox.mkpdf_manager.convert_markdown_to_pdf")
+    def test_mkpdf_with_options(self, mock_convert, _mock_setup_log):
+        with patch.object(
+            sys,
+            "argv",
+            [
+                "zxtool",
+                "mkpdf",
+                "docs",
+                "--file",
+                "guide/index.md",
+                "-o",
+                "out.pdf",
+                "--title",
+                "My PDF",
+                "--browser",
+                "msedge",
+                "--mermaid-js",
+                "vendor/mermaid.min.js",
+                "--no-mermaid",
+                "--render-wait-ms",
+                "8000",
+            ],
+        ):
+            cli.main()
+        mock_convert.assert_called_once_with(
+            input_path="docs",
+            output_path="out.pdf",
+            title="My PDF",
+            directory_file="guide/index.md",
+            browser_path="msedge",
+            mermaid_js="vendor/mermaid.min.js",
+            enable_mermaid=False,
+            render_wait_ms=8000,
+        )
+
+    @patch("zxtoolbox.logging_manager.setup_logging", return_value=None)
+    @patch("zxtoolbox.mkpdf_manager.convert_markdown_to_pdf", side_effect=FileNotFoundError("missing"))
+    def test_mkpdf_prints_user_friendly_error(self, _mock_convert, _mock_setup_log, capsys):
+        with patch.object(sys, "argv", ["zxtool", "mkpdf", "missing.md"]):
+            cli.main()
+        captured = capsys.readouterr()
+        assert "[ERROR] missing" in captured.out
+
+
 class TestCliGit:
     """Test CLI git subcommand."""
 

@@ -14,7 +14,28 @@ Window、Mac、Linux系统中，对经常做的一些重复性事情的封装
 uv tool install zxtoolbox
 ```
 
-## 0x02. 目录结构
+## 0x02. 常用命令
+
+### Markdown 转 PDF
+
+```shell
+# 单个 Markdown 文件转 PDF
+zxtool mkpdf ./README.md
+
+# 目录中的 Markdown 合并转 PDF
+zxtool mkpdf ./docs -o ./dist/docs.pdf
+```
+
+说明：
+
+- 支持常见 Markdown 样式：标题、列表、表格、引用、代码块、图片
+- 目录模式下默认读取目录内的 `README.md`，也可通过 `--file` 指定入口 Markdown
+- 默认内置 Mermaid 运行时文件，离线可用，不依赖 CDN
+- 需要本机安装 Edge、Chrome 或 Chromium 之一用于无头打印 PDF
+
+完整说明见 [docs/mkpdf_manager.md](./docs/mkpdf_manager.md)。
+
+## 0x03. 目录结构
 ```text
 toolbox/
 ├── doc/                    # 文档目录
@@ -24,6 +45,7 @@ toolbox/
 │   ├── git_config.md      # Git 仓库配置文档
 │   ├── letsencrypt.md     # Let's Encrypt 证书文档
 │   ├── mkdocs_manager.md  # MkDocs 项目管理文档
+│   ├── mkpdf_manager.md   # Markdown 转 PDF 文档
 │   ├── ssl_cert.md        # SSL 证书生成文档
 │   └── video_download.md  # 视频下载文档
 ├── src/                   # 源代码目录
@@ -35,6 +57,7 @@ toolbox/
 │       ├── git_config.py       # Git 仓库配置管理
 │       ├── letsencrypt.py      # Let's Encrypt 证书管理
 │       ├── mkdocs_manager.py   # MkDocs 项目管理
+│       ├── mkpdf_manager.py    # Markdown 转 PDF
 │       ├── pyopt_2fa.py        # 2FA 工具
 │       ├── ssl_cert.py         # SSL 证书生成
 │       ├── video_download.py   # 视频下载
@@ -44,7 +67,7 @@ toolbox/
 └── uv.lock               # uv 锁定的依赖版本
 ```
 
-## 0x03. 依赖的包
+## 0x04. 依赖的包
 
 ### 核心依赖
 
@@ -63,8 +86,9 @@ toolbox/
 | requests | HTTP 请求 | [requests.readthedocs.io](https://requests.readthedocs.io/) |
 | mkdocs | Documentation site building | [mkdocs.org](https://www.mkdocs.org/) |
 | mkdocs-smzhbook-theme | MkDocs theme | [github.com](https://github.com/smallzh/mkdocs-smzhbook-theme) |
+| Markdown | Markdown 渲染 | [python-markdown.github.io](https://python-markdown.github.io/) |
 
-## 0x04. 运行单元测试
+## 0x05. 运行单元测试
 
 项目使用 `pytest` 作为测试框架，测试文件位于 `src/zxtoolbox/test/` 目录。
 

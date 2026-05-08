@@ -15,6 +15,7 @@ nav:
       - 电脑 OS 和硬件信息: computer_info.md
       - Git 配置管理: git_config.md
       - MkDocs 构建: mkdocs_manager.md
+      - Markdown 转 PDF: mkpdf_manager.md
       - Nginx 站点配置: nginx_manager.md
       - Let's Encrypt 证书: letsencrypt.md
       - 飞书 Client: feishu_client.md
