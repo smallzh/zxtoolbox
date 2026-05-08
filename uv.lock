@@ -908,7 +908,7 @@ wheels = [
 
 [[package]]
 name = "zxtoolbox"
-version = "1.7.12"
+version = "1.8.12"
 source = { editable = "." }
 dependencies = [
     { name = "cryptography" },

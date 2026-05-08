@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from contextlib import ExitStack
 from pathlib import Path
+import subprocess
 import shutil
 import zipfile
 
@@ -114,6 +115,22 @@ def test_build_html_document_includes_mermaid_script(tmp_path):
     assert "file:///tmp/mermaid.min.js" in html
 
 
+def test_build_html_document_does_not_add_cover_header(tmp_path):
+    markdown_file = tmp_path / "demo.md"
+    markdown_file.write_text("# Demo\n\ncontent", encoding="utf-8")
+    source = mpdf._load_markdown_source(markdown_file, tmp_path)
+
+    html = mpdf._build_html_document(
+        sources=[source],
+        title="Demo",
+        mermaid_script_source=None,
+        enable_mermaid=False,
+    )
+
+    assert '<header class="cover">' not in html
+    assert html.count("<h1>Demo</h1>") == 1
+
+
 def test_resolve_bundled_mermaid_script_source_returns_file_uri():
     with ExitStack() as stack:
         script_uri = mpdf._resolve_mermaid_script_source(None, stack)
@@ -151,6 +168,42 @@ def test_convert_markdown_to_pdf_calls_browser_renderer(tmp_path, monkeypatch):
 def test_convert_markdown_to_pdf_rejects_missing_input(tmp_path):
     with pytest.raises(FileNotFoundError):
         mpdf.convert_markdown_to_pdf(tmp_path / "missing.md")
+
+
+def test_decode_process_output_tolerates_non_gbk_bytes():
+    text = mpdf._decode_process_output(b"\xffabc")
+
+    assert isinstance(text, str)
+    assert "abc" in text
+
+
+def test_render_pdf_with_browser_disables_pdf_header_footer(tmp_path, monkeypatch):
+    browser = tmp_path / "browser.exe"
+    browser.write_text("", encoding="utf-8")
+    html_file = tmp_path / "document.html"
+    html_file.write_text("<html></html>", encoding="utf-8")
+    output_file = tmp_path / "demo.pdf"
+    captured: dict[str, object] = {}
+
+    def fake_run(command: list[str], capture_output: bool, text: bool, check: bool):
+        captured["command"] = command
+        captured["capture_output"] = capture_output
+        captured["text"] = text
+        captured["check"] = check
+        output_file.write_bytes(b"%PDF-1.4")
+        return subprocess.CompletedProcess(command, 0, stdout=b"", stderr=b"")
+
+    monkeypatch.setattr(mpdf.subprocess, "run", fake_run)
+
+    mpdf._render_pdf_with_browser(browser, html_file, output_file, render_wait_ms=1234)
+
+    command = captured["command"]
+    assert "--no-pdf-header-footer" in command
+    assert "--print-to-pdf-no-header" in command
+    assert "--print-to-pdf=" + str(output_file) in command
+    assert captured["capture_output"] is True
+    assert captured["text"] is False
+    assert captured["check"] is False
 
 
 def test_wheel_contains_vendored_mermaid_assets():

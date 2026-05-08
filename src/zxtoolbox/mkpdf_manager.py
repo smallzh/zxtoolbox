@@ -6,6 +6,7 @@ from contextlib import ExitStack
 from dataclasses import dataclass
 import html
 from importlib import resources
+import locale
 import os
 from pathlib import Path
 import re
@@ -81,30 +82,12 @@ main {
     width: 100%;
 }
 
-.cover {
-    margin-bottom: 20mm;
-    padding-bottom: 8mm;
-    border-bottom: 1px solid var(--border);
-}
-
-.cover h1 {
-    margin: 0 0 0.4rem;
-    font-size: 2rem;
-    color: var(--heading);
-}
-
-.cover p {
-    margin: 0;
-    color: var(--muted);
-    font-size: 0.95rem;
-}
-
 article.document {
-    page-break-before: always;
+    page-break-before: auto;
 }
 
-article.document:first-of-type {
-    page-break-before: auto;
+article.document + article.document {
+    page-break-before: always;
 }
 
 .document-path {
@@ -407,12 +390,7 @@ def _build_html_document(
     has_multiple_documents = len(sources) > 1
     needs_mermaid = enable_mermaid and mermaid_script_source is not None
 
-    body_parts = [
-        '<header class="cover">',
-        f"<h1>{html.escape(title)}</h1>",
-        f"<p>{len(sources)} Markdown file(s)</p>",
-        "</header>",
-    ]
+    body_parts: list[str] = []
 
     for source in sources:
         body_parts.append('<article class="document">')
@@ -563,20 +541,43 @@ def _render_pdf_with_browser(
         "--allow-file-access-from-files",
         "--disable-web-security",
         f"--virtual-time-budget={render_wait_ms}",
+        "--no-pdf-header-footer",
+        "--print-to-pdf-no-header",
         f"--print-to-pdf={output_path}",
         html_path.as_uri(),
     ]
     result = subprocess.run(
         command,
         capture_output=True,
-        text=True,
+        text=False,
         check=False,
     )
+    stderr = _decode_process_output(result.stderr).strip()
+    stdout = _decode_process_output(result.stdout).strip()
     if result.returncode != 0:
-        error = result.stderr.strip() or result.stdout.strip() or "unknown error"
+        error = stderr or stdout or "unknown error"
         raise RuntimeError(f"browser PDF export failed: {error}")
     if not output_path.exists():
+        error = stderr or stdout
+        if error:
+            raise RuntimeError(f"browser completed without creating the PDF file: {error}")
         raise RuntimeError("browser completed without creating the PDF file")
+
+
+def _decode_process_output(output: bytes | None) -> str:
+    """Decode subprocess output without relying on the Windows console code page."""
+    if not output:
+        return ""
+
+    encodings = ["utf-8", locale.getpreferredencoding(False)]
+    for encoding in dict.fromkeys(encodings):
+        if not encoding:
+            continue
+        try:
+            return output.decode(encoding)
+        except UnicodeDecodeError:
+            continue
+    return output.decode("utf-8", errors="replace")
 
 
 def _find_browser_executable(browser_path: str | Path | None) -> Path:
