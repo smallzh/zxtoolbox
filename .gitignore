@@ -143,5 +143,10 @@ cython_debug/
 # pychram
 .idea
 
+# ai coding agent
+.claude/
+.codex/
+.opencode/
+
 # test
 out_le
