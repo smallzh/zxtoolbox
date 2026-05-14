@@ -75,6 +75,14 @@ def _build_http_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentP
     http_serve_parser.add_argument("--host", type=str, default="127.0.0.1", help="bind host")
     http_serve_parser.add_argument("-p", "--port", type=int, default=8000, help="bind port")
 
+    http_video_parser = http_subparsers.add_parser("video", help="start an HTTP video player for one local MP4 file")
+    http_video_parser.set_defaults(_command_parser=http_video_parser)
+    http_video_parser.add_argument("directory", nargs="?", default=".", help="directory containing the MP4 file")
+    http_video_parser.add_argument("--file", type=str, default=None, help="explicit MP4 file path inside the directory")
+    http_video_parser.add_argument("--title", type=str, default=None, help="custom page title")
+    http_video_parser.add_argument("--host", type=str, default="127.0.0.1", help="bind host")
+    http_video_parser.add_argument("-p", "--port", type=int, default=8000, help="bind port")
+
 
 def _build_ssl_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
     ssl_parser = subparsers.add_parser("ssl", help="generate self-signed SSL certificates")
@@ -406,6 +414,14 @@ def handle_http(args: argparse.Namespace) -> None:
             directory=args.directory,
             host=args.host,
             port=args.port,
+        )
+    elif http_cmd == "video":
+        hs.serve_video(
+            directory=args.directory,
+            video_file=args.file,
+            host=args.host,
+            port=args.port,
+            title=args.title,
         )
     else:
         _print_help(args)

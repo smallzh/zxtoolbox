@@ -23,6 +23,7 @@ nav:
       - EPUB 转 Markdown: epub_manager.md
       - 目录备份拷贝: backup_manager.md
       - HTTP静态文件服务: http_server.md
+      - HTTP视频播放: http_video.md
       - 自签SSL证书: ssl_cert.md
       - 视频下载: video_download.md
       - TOTP 解析: totp.md

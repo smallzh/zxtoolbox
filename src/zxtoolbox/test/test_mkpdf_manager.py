@@ -217,3 +217,8 @@ def test_wheel_contains_vendored_mermaid_assets():
 
     assert "zxtoolbox/assets/mermaid/mermaid.min.js" in names
     assert "zxtoolbox/assets/mermaid/LICENSE" in names
+    assert "zxtoolbox/assets/xgplayer/index.min.js" in names
+    assert "zxtoolbox/assets/xgplayer/index.min.css" in names
+    assert "zxtoolbox/assets/xgplayer/LICENSE" in names
+    assert "zxtoolbox/assets/http_video/player.js" in names
+    assert "zxtoolbox/assets/http_video/player.css" in names

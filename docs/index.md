@@ -60,6 +60,7 @@ toolbox/
 │   ├── config_manager.md  # 配置文件管理文档
 │   ├── git_config.md      # Git 仓库配置文档
 │   ├── http_server.md     # HTTP 静态文件服务文档
+│   ├── http_video.md      # HTTP 视频播放文档
 │   ├── letsencrypt.md     # Let's Encrypt 证书文档
 │   ├── mkdocs_manager.md  # MkDocs 项目管理文档
 │   ├── mkpdf_manager.md   # Markdown 转 PDF 文档

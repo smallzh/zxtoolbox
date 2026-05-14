@@ -144,6 +144,49 @@ class TestCliHttp:
             port=9000,
         )
 
+    @patch("zxtoolbox.logging_manager.setup_logging", return_value=None)
+    @patch("zxtoolbox.http_server.serve_video")
+    def test_http_video_default(self, mock_video, _mock_setup_log):
+        with patch.object(sys, "argv", ["zxtool", "http", "video"]):
+            cli.main()
+        mock_video.assert_called_once_with(
+            directory=".",
+            video_file=None,
+            host="127.0.0.1",
+            port=8000,
+            title=None,
+        )
+
+    @patch("zxtoolbox.logging_manager.setup_logging", return_value=None)
+    @patch("zxtoolbox.http_server.serve_video")
+    def test_http_video_with_options(self, mock_video, _mock_setup_log):
+        with patch.object(
+            sys,
+            "argv",
+            [
+                "zxtool",
+                "http",
+                "video",
+                "./videos",
+                "--file",
+                "demo.mp4",
+                "--title",
+                "My Demo",
+                "--host",
+                "0.0.0.0",
+                "--port",
+                "9001",
+            ],
+        ):
+            cli.main()
+        mock_video.assert_called_once_with(
+            directory="./videos",
+            video_file="demo.mp4",
+            host="0.0.0.0",
+            port=9001,
+            title="My Demo",
+        )
+
 
 class TestCliSsl:
     """Test CLI ssl subcommand."""
