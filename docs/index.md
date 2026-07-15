@@ -1,6 +1,10 @@
 # zxtoolbox
 
-`zxtoolbox` 是一个面向 Windows、Mac、Linux 的常用工具集合，用来封装重复性操作。
+<div align="center">
+<img src = "/assets/images/logo.png" />
+</div>
+
+`zxtoolbox` 简称 `zxtool`，是一个面向 Windows、Mac、Linux 的常用工具集合，用来封装重复性操作。
 
 ## 功能概览
 

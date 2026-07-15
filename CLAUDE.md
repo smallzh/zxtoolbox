@@ -26,7 +26,7 @@ uv run pytest src/zxtoolbox/test/test_cli.py::TestCliGit::test_git_config_check 
 uv build
 
 # Serve docs locally
-uv run mkdocs serve
+uv run python -m mkdocs serve
 ```
 
 ## Project Overview
