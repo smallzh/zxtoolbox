@@ -355,7 +355,7 @@ class CertificateManager:
 
     def issue_cert(
         self,
-        domains: list[str],
+        domain: str,
         dns_provider: str | None = None,
         dns_config: dict[str, str] | None = None,
         http_provider: str | None = None,
@@ -365,7 +365,7 @@ class CertificateManager:
         """申请证书。
 
         Args:
-            domains: 域名列表，第一个为主域名
+            domain: 域名，如 example.com 或 *.example.com
             dns_provider: DNS 提供商名称 (manual/cloudflare/aliyun)
             dns_config: DNS 提供商配置
             http_provider: HTTP-01 提供商 (webroot/standalone)
@@ -379,21 +379,23 @@ class CertificateManager:
             AcmeShError: 签发失败时
             ValueError: 参数无效时
         """
-        if not domains:
-            raise ValueError("域名列表不能为空")
+        if not domain:
+            raise ValueError("域名不能为空")
 
         # 确保 acme.sh 已安装
         self.acme.check_and_install()
 
         # 确定验证方式
-        is_wildcard = any(d.startswith("*.") for d in domains)
+        is_wildcard = domain.startswith("*.")
 
         # 构建命令参数
         args = ["--issue"]
 
-        # 添加域名
-        for domain in domains:
-            args.extend(["-d", domain])
+        # 添加域名 — 泛域名自动包含根域名
+        if is_wildcard:
+            args.extend(["-d", domain, "-d", domain[2:]])  # *.example.com + example.com
+        else:
+            args.extend(["-d", domain, "-d", f"*.{domain}"])  # example.com + *.example.com
 
         # 设置服务器（staging/production）
         if self.staging:
@@ -430,7 +432,7 @@ class CertificateManager:
         if force:
             args.append("--force")
 
-        print(f"[INFO] 申请证书: {', '.join(domains)}")
+        print(f"[INFO] 申请证书: {domain}")
         if self.staging:
             print("[INFO] 使用测试环境 (staging)")
         else:
@@ -444,11 +446,11 @@ class CertificateManager:
             raise
 
         # 安装证书到指定目录
-        main_domain = domains[0]
-        result = self._install_cert(main_domain, domains)
+        main_domain = domain
+        result = self._install_cert(main_domain, domain)
 
         # 更新续签状态
-        self._update_renew_state(main_domain, domains, dns_provider or http_provider or "manual")
+        self._update_renew_state(main_domain, domain, dns_provider or http_provider or "manual")
 
         print(f"[OK] 证书申请成功: {main_domain}")
         return result
@@ -491,14 +493,14 @@ class CertificateManager:
 
         return env if env else None
 
-    def _install_cert(self, main_domain: str, domains: list[str]) -> dict[str, Any]:
+    def _install_cert(self, main_domain: str, domain: str) -> dict[str, Any]:
         """安装证书到输出目录。
 
         将 acme.sh 内部存储的证书复制到指定输出目录。
 
         Args:
             main_domain: 主域名
-            domains: 所有域名列表
+            domain: 域名
 
         Returns:
             证书信息字典
@@ -530,7 +532,6 @@ class CertificateManager:
         # 构建证书信息
         result = {
             "domain": main_domain,
-            "domains": domains,
             "cert_file": str(cert_file),
             "key_file": str(key_file),
             "ca_file": str(ca_file),
@@ -594,13 +595,13 @@ class CertificateManager:
         return None
 
     def _update_renew_state(
-        self, main_domain: str, domains: list[str], provider: str
+        self, main_domain: str, domain: str, provider: str
     ) -> None:
         """更新续签状态文件。
 
         Args:
             main_domain: 主域名
-            domains: 所有域名列表
+            domain: 域名
             provider: 使用的提供商
         """
         state_path = self.cert_dir / RENEW_STATE_FILE
@@ -623,7 +624,7 @@ class CertificateManager:
 
         # 更新状态
         state["certificates"][main_domain] = {
-            "domains": domains,
+            "domain": domain,
             "provider": provider,
             "staging": self.staging,
             "email": self.email,
@@ -687,8 +688,18 @@ class CertificateManager:
             print(f"[INFO] 正在续签证书: {main_domain}")
 
             try:
-                # 构建续签参数
-                args = ["--renew", "-d", main_domain]
+                # 读取域名（兼容旧状态文件中的 "domains" 列表）
+                stored_domain = cert_info.get("domain")
+                if not stored_domain:
+                    domains_list = cert_info.get("domains", [])
+                    stored_domain = domains_list[0] if domains_list else main_domain
+
+                # 构建续签参数 — 与 issue_cert 保持一致的域名扩展
+                is_wildcard = stored_domain.startswith("*.")
+                if is_wildcard:
+                    args = ["--renew", "-d", stored_domain, "-d", stored_domain[2:]]
+                else:
+                    args = ["--renew", "-d", stored_domain]
 
                 if force:
                     args.append("--force")
@@ -708,11 +719,10 @@ class CertificateManager:
                 self.acme._run_acme_sh(*args, env=env)
 
                 # 重新安装证书
-                domains = cert_info.get("domains", [main_domain])
-                self._install_cert(main_domain, domains)
+                self._install_cert(main_domain, stored_domain)
 
                 # 更新状态
-                self._update_renew_state(main_domain, domains, provider)
+                self._update_renew_state(main_domain, stored_domain, provider)
 
                 print(f"[OK] 证书续签成功: {main_domain}")
                 results.append({"domain": main_domain, "renewed": True})
@@ -808,9 +818,15 @@ class CertificateManager:
                 except ValueError:
                     pass
 
+            # 兼容旧状态文件中的 "domains" 列表
+            stored_domain = cert_info.get("domain")
+            if not stored_domain:
+                domains_list = cert_info.get("domains", [])
+                stored_domain = domains_list[0] if domains_list else main_domain
+
             results.append({
                 "domain": main_domain,
-                "domains": cert_info.get("domains", [main_domain]),
+                "domains": [stored_domain],
                 "status": status,
                 "days_left": days_left,
                 "expires_at": expires_at_str,
@@ -905,7 +921,7 @@ def init(cert_dir: str | Path | None = None) -> None:
 
 def obtain_cert(
     out_dir: Path,
-    domains: list[str],
+    domain: str,
     provider: str = "manual",
     provider_config: dict[str, str] | None = None,
     staging: bool = True,
@@ -917,7 +933,7 @@ def obtain_cert(
 
     Args:
         out_dir: 输出目录
-        domains: 域名列表
+        domain: 域名，如 example.com 或 *.example.com
         provider: 提供商名称
         provider_config: 提供商配置
         staging: 是否使用测试环境
@@ -928,10 +944,8 @@ def obtain_cert(
     Returns:
         证书信息字典，失败返回 None
     """
-    # 检查是否有泛域名
-    is_wildcard = any(d.startswith("*.") for d in domains)
-
     # 泛域名必须使用 DNS-01
+    is_wildcard = domain.startswith("*.") if domain else False
     if is_wildcard and challenge_type == "http-01":
         print("[ERROR] 泛域名证书只能使用 DNS-01 验证方式")
         return None
@@ -960,7 +974,7 @@ def obtain_cert(
     # 签发证书
     try:
         result = cert_manager.issue_cert(
-            domains=domains,
+            domain=domain,
             dns_provider=dns_provider,
             dns_config=provider_config,
             http_provider=http_provider,
@@ -1109,15 +1123,11 @@ def batch_obtain_certs(
         output_dir = _le.get("output_dir", "out_le")
         provider_config = _le.get("provider_config", {})
 
-        # 自动包含根域名
-        domains = [domain]
+        # 泛域名强制使用 DNS-01
         if domain.startswith("*."):
-            base_domain = domain[2:]  # 移除 *.
-            domains.append(base_domain)
-            challenge_type = "dns-01"  # 强制使用 DNS-01
+            challenge_type = "dns-01"
 
         print(f"\n--- [{i}/{total}] {domain} ---")
-        print(f"  域名列表: {domains}")
         print(f"  验证方式: {challenge_type.upper()}")
         print(f"  提供商: {provider}")
         print(f"  输出目录: {output_dir}")
@@ -1131,7 +1141,7 @@ def batch_obtain_certs(
         # 签发证书
         result = obtain_cert(
             out_dir=Path(output_dir),
-            domains=domains,
+            domain=domain,
             provider=provider,
             provider_config=provider_config,
             staging=staging,

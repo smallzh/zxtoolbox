@@ -78,9 +78,11 @@ zxtool le init
 
 ```bash
 # 测试环境签发（默认 staging，不会触及生产速率限制）
-zxtool le issue -d example.com "*.example.com"
+zxtool le issue -d example.com
+zxtool le issue -d "*.example.com"
 ```
 
+对于泛域名证书，系统会自动包含根域名（如 `*.example.com` 会自动包含 `example.com`）。
 acme.sh 会自动处理 DNS 验证流程。对于手动模式，它会暂停并提示你如何添加 TXT 记录。
 
 ### 6.2 Cloudflare 自动 DNS
@@ -88,8 +90,17 @@ acme.sh 会自动处理 DNS 验证流程。对于手动模式，它会暂停并�
 通过 Cloudflare API 自动管理 DNS 记录，无需手动操作。
 
 ```bash
+# 单域名
 zxtool le issue \
-  -d example.com "*.example.com" \
+  -d example.com \
+  --provider cloudflare \
+  --provider-config '{"api_token":"你的API_TOKEN","zone_id":"你的ZONE_ID"}' \
+  --production \
+  --email admin@example.com
+
+# 泛域名（自动包含根域名）
+zxtool le issue \
+  -d "*.example.com" \
   --provider cloudflare \
   --provider-config '{"api_token":"你的API_TOKEN","zone_id":"你的ZONE_ID"}' \
   --production \
@@ -107,7 +118,7 @@ zxtool le issue \
 
 ```bash
 zxtool le issue \
-  -d example.com "*.example.com" \
+  -d example.com \
   --provider aliyun \
   --provider-config '{"access_key_id":"你的AK","access_key_secret":"你的SK"}' \
   --production \
@@ -145,7 +156,7 @@ zxtool le issue \
 
 | 参数 | 说明 | 默认值 |
 |------|------|--------|
-| `-d, --domain` | 域名列表（必需） | - |
+| `-d, --domain` | 域名，如 example.com 或 *.example.com（必需） | - |
 | `--challenge` | 验证方式：`dns-01` 或 `http-01` | `dns-01` |
 | `--provider` | 验证提供商 | DNS-01: `manual`；HTTP-01: `standalone` |
 | `--provider-config` | 提供商配置（JSON 字符串） | - |

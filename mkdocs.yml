@@ -11,22 +11,21 @@ theme:
 nav:
   - 首页: index.md
   - 文档:
-      - zxtool 配置管理: config_manager.md
-      - 电脑 OS 和硬件信息: computer_info.md
-      - Git 配置管理: git_config.md
-      - MkDocs 构建: mkdocs_manager.md
-      - Markdown 转 PDF: mkpdf_manager.md
-      - Nginx 站点配置: nginx_manager.md
-      - Let's Encrypt 证书: letsencrypt.md
-      - 飞书 Client: feishu_client.md
-      - 自签 SSL 证书: ssl_cert.md
-      - EPUB 转 Markdown: epub_manager.md
+      - zxtool配置文件: config_manager.md
+      - 硬件基础信息: computer_info.md
+      - Git项目配置: git_config.md
+      - Markdown转PDF: mkpdf_manager.md
+      - 图片处理: image_manager.md
+      - MkDocs项目构建: mkdocs_manager.md
+      - EPUB转Markdown: epub_manager.md
+      - TOTP解析: totp.md
+      - 在线视频下载: video_download.md
       - 目录备份拷贝: backup_manager.md
       - HTTP静态文件服务: http_server.md
       - HTTP视频播放: http_video.md
+      - Nginx站点配置: nginx_manager.md
+      - Let's Encrypt证书: letsencrypt.md
       - 自签SSL证书: ssl_cert.md
-      - 视频下载: video_download.md
-      - TOTP 解析: totp.md
 
 plugins:
   - search:

@@ -5,8 +5,8 @@
 
 功能：
 - 生成 Root CA 证书（20年有效期）
-- 为多个域名签发泛域名证书（2年有效期）
-- 支持 SAN（Subject Alternative Name）多域名
+- 为单域名或泛域名签发 SSL 证书（2年有效期）
+- 支持 SAN（Subject Alternative Name）自动包含域名变体
 - 输出可直接用于 nginx 配置的 bundle 证书
 """
 
@@ -133,6 +133,11 @@ extendedKeyUsage = critical, OCSPSigning
 # ============================================================
 # 辅助函数
 # ============================================================
+
+
+def _safe_path_name(domain: str) -> str:
+    """将域名转换为适合文件系统路径的名称。"""
+    return domain.replace("*.", "wildcard.")
 
 
 def _run(cmd: list[str], **kwargs) -> subprocess.CompletedProcess:
@@ -267,13 +272,15 @@ def generate_root(out_dir: Path, force: bool = False):
     return True
 
 
-def generate_cert(out_dir: Path, domains: list[str]):
+def generate_cert(out_dir: Path, domain: str):
     """
-    为指定域名签发泛域名 SSL 证书（对应 gen.cert.sh）。
+    为指定域名签发 SSL 证书（对应 gen.cert.sh）。
+
+    支持单域名 (example.com) 和泛域名 (*.example.com)。
+    证书 SAN 会自动覆盖域名及其泛域名/根域名变体。
 
     参数：
-        domains: 域名列表，如 ["example.dev", "another.dev"]
-                 第一个域名作为主域名用于目录命名。
+        domain: 域名，如 "example.dev" 或 "*.example.dev"
 
     输出：
         out/<domain>/<domain>.crt          — 网站证书
@@ -281,8 +288,8 @@ def generate_cert(out_dir: Path, domains: list[str]):
         out/<domain>/<domain>.key.pem      — 私钥（符号链接）
         out/<domain>/root.crt              — 根证书（符号链接）
     """
-    if not domains:
-        print("Error: at least one domain is required.")
+    if not domain:
+        print("Error: domain is required.")
         return
 
     # 确保 Root CA 存在
@@ -295,30 +302,33 @@ def generate_cert(out_dir: Path, domains: list[str]):
     root_key = out_dir / "root.key.pem"
     cert_key = out_dir / "cert.key.pem"
 
-    primary = domains[0]
+    is_wildcard = domain.startswith("*.")
+    # 使用安全的目录名（泛域名转 wildcard.xxx）
+    safe_domain = _safe_path_name(domain)
     timestamp = datetime.now().strftime("%Y%m%d-%H%M")
-    domain_dir = out_dir / primary
+    domain_dir = out_dir / safe_domain
     version_dir = domain_dir / timestamp
 
     version_dir.mkdir(parents=True, exist_ok=True)
 
-    # 构建 SAN 字符串: DNS:*.example.dev,DNS:example.dev,DNS:*.another.dev,DNS:another.dev
-    san_parts = []
-    for d in domains:
-        san_parts.append(f"DNS:*.{d}")
-        san_parts.append(f"DNS:{d}")
+    # 构建 SAN 字符串：始终包含域名及其变体
+    # example.com  → DNS:example.com,DNS:*.example.com
+    # *.example.com → DNS:*.example.com,DNS:example.com
+    san_parts = [f"DNS:{domain}"]
+    if is_wildcard:
+        san_parts.append(f"DNS:{domain[2:]}")  # *.example.com → example.com
+    else:
+        san_parts.append(f"DNS:*.{domain}")     # example.com → *.example.com
     san = ",".join(san_parts)
 
-    # 构建 OU（用逗号分隔多域名）
-    ou = ",".join(domains)
+    # OU 和 CN 直接使用域名
+    ou = domain
+    cn = domain
 
-    # 主域名的 CN
-    cn = f"*.{primary}"
+    csr_path = version_dir / f"{safe_domain}.csr.pem"
+    crt_path = version_dir / f"{safe_domain}.crt"
 
-    csr_path = version_dir / f"{primary}.csr.pem"
-    crt_path = version_dir / f"{primary}.crt"
-
-    print(f"Issuing wildcard certificate for: {', '.join(domains)}")
+    print(f"Issuing certificate for: {domain}")
     print(f"  SAN: {san}")
 
     # 生成 CSR（使用动态 SAN 配置）
@@ -376,7 +386,7 @@ def generate_cert(out_dir: Path, domains: list[str]):
     )
 
     # 拼接证书链（网站证书 + Root CA）
-    bundle_path = version_dir / f"{primary}.bundle.crt"
+    bundle_path = version_dir / f"{safe_domain}.bundle.crt"
     cert_pem = crt_path.read_text()
     root_pem = root_crt.read_text()
     bundle_path.write_text(cert_pem + root_pem, encoding="utf-8")
@@ -387,14 +397,14 @@ def generate_cert(out_dir: Path, domains: list[str]):
             link.unlink()
         link.symlink_to(target)
 
-    _symlink(bundle_path, domain_dir / f"{primary}.bundle.crt")
-    _symlink(crt_path, domain_dir / f"{primary}.crt")
-    _symlink(cert_key, domain_dir / f"{primary}.key.pem")
+    _symlink(bundle_path, domain_dir / f"{safe_domain}.bundle.crt")
+    _symlink(crt_path, domain_dir / f"{safe_domain}.crt")
+    _symlink(cert_key, domain_dir / f"{safe_domain}.key.pem")
     _symlink(root_crt, domain_dir / "root.crt")
 
     # 输出结果
     print()
-    print(f"Certificates generated for: {primary}")
+    print(f"Certificates generated for: {domain}")
     print(f"  Domain dir: {domain_dir}")
     print()
     print("Files:")
@@ -404,9 +414,9 @@ def generate_cert(out_dir: Path, domains: list[str]):
         else:
             print(f"  {f.name}")
     print()
-    print(f"  {primary}.bundle.crt  — 完整证书链（可用于 nginx 配置）")
-    print(f"  {primary}.crt         — 网站证书")
-    print(f"  {primary}.key.pem     — 私钥")
+    print(f"  {safe_domain}.bundle.crt  — 完整证书链（可用于 nginx 配置）")
+    print(f"  {safe_domain}.crt         — 网站证书")
+    print(f"  {safe_domain}.key.pem     — 私钥")
     print(f"  root.crt              — 根证书（需导入系统并信任）")
     print()
     print("Done! Import root.crt into your OS trust store to enable HTTPS.")
@@ -426,11 +436,11 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 示例:
-  # 为单个域名生成证书
+  # 为域名生成证书
   zxtool --ssl --domain example.dev
 
-  # 为多个域名生成证书
-  zxtool --ssl --domain example.dev another.dev third.dev
+  # 为泛域名生成证书
+  zxtool --ssl --domain "*.example.dev"
 
   # 仅初始化目录
   zxtool --ssl --init
@@ -455,7 +465,7 @@ def main():
     ssl_group = parser.add_argument_group("SSL", "自签泛域名 SSL 证书生成")
     ssl_group.add_argument("--ssl", action="store_true", help="激活 SSL 证书生成功能")
     ssl_group.add_argument(
-        "-d", "--domain", nargs="+", help="域名列表，如 example.dev another.dev"
+        "-d", "--domain", help="域名，如 example.dev 或 *.example.dev"
     )
     ssl_group.add_argument("--init", action="store_true", help="仅初始化输出目录结构")
     ssl_group.add_argument(
@@ -494,7 +504,7 @@ def main():
         generate_cert(out_dir, args.domain)
     else:
         print("Error: --domain is required to generate certificates.")
-        print("Usage: zxtool --ssl --domain example.dev [another.dev ...]")
+        print("Usage: zxtool --ssl --domain example.dev")
 
 
 if __name__ == "__main__":

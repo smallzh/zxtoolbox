@@ -194,20 +194,20 @@ class TestCertificateManager:
 
         with patch.object(acme, "check_and_install"):
             result = manager.issue_cert(
-                domains=["example.com"],
+                domain="example.com",
                 http_provider="webroot",
                 webroot="/var/www/html",
             )
             assert result is not None
             assert result["domain"] == "example.com"
 
-    def test_issue_cert_empty_domains(self, tmp_path):
-        """Test issue_cert with empty domains raises ValueError."""
+    def test_issue_cert_empty_domain(self, tmp_path):
+        """Test issue_cert with empty domain raises ValueError."""
         acme = AcmeShManager(install_dir=str(tmp_path))
         manager = CertificateManager(acme=acme)
 
         with pytest.raises(ValueError, match="不能为空"):
-            manager.issue_cert(domains=[])
+            manager.issue_cert(domain="")
 
     def test_wildcard_requires_dns01(self, tmp_path):
         """Test wildcard domain requires DNS-01 challenge."""
@@ -220,7 +220,7 @@ class TestCertificateManager:
         with patch.object(acme, "check_and_install"):
             # 泛域名必须使用 DNS-01
             result = manager.issue_cert(
-                domains=["*.example.com"],
+                domain="*.example.com",
                 dns_provider="manual",
             )
             # 应该成功，因为我们指定了 dns_provider
@@ -243,7 +243,7 @@ class TestCertificateManager:
         state = {
             "certificates": {
                 "example.com": {
-                    "domains": ["example.com"],
+                    "domain": "example.com",
                     "provider": "dns_cf",
                     "staging": True,
                     "email": "test@example.com",
@@ -300,7 +300,7 @@ class TestCertificateManager:
         state = {
             "certificates": {
                 "example.com": {
-                    "domains": ["example.com", "*.example.com"],
+                    "domain": "example.com",
                     "provider": "dns_cf",
                     "staging": True,
                     "email": "test@example.com",
@@ -394,7 +394,7 @@ class TestObtainCert:
 
         result = obtain_cert(
             out_dir=tmp_path,
-            domains=["example.com"],
+            domain="example.com",
             provider="webroot",
             provider_config={"webroot": "/var/www/html"},
             challenge_type="http-01",
@@ -407,7 +407,7 @@ class TestObtainCert:
         """Test obtain_cert with wildcard and HTTP-01 fails."""
         result = obtain_cert(
             out_dir=tmp_path,
-            domains=["*.example.com"],
+            domain="*.example.com",
             provider="webroot",
             challenge_type="http-01",
         )

@@ -18,6 +18,7 @@ import zxtoolbox.logging_manager as lm
 import zxtoolbox.mkpdf_manager as mpdf
 import zxtoolbox.pyopt_2fa as opt2fa
 import zxtoolbox.ssl_cert as ssl
+import zxtoolbox.image_manager as imgm
 import zxtoolbox.video_download as vd
 
 
@@ -59,8 +60,7 @@ def build_parser() -> argparse.ArgumentParser:
     _build_backup_parser(subparsers)
     _build_mkpdf_parser(subparsers)
     _build_le_parser(subparsers)
-    _build_feishu_parser(subparsers)
-
+    _build_image_parser(subparsers)
     return parser
 
 
@@ -100,7 +100,7 @@ def _build_ssl_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentPa
 
     ssl_cert_parser = ssl_subparsers.add_parser("cert", help="generate domain certificates")
     ssl_cert_parser.set_defaults(_command_parser=ssl_cert_parser)
-    ssl_cert_parser.add_argument("-d", "--domain", nargs="+", required=True, help="domain list")
+    ssl_cert_parser.add_argument("-d", "--domain", required=True, help="domain (e.g. example.com or *.example.com)")
     ssl_cert_parser.add_argument("--output", type=str, default=None, help="output directory")
 
 
@@ -275,7 +275,7 @@ def _build_le_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentPar
 
     le_issue_parser = le_subparsers.add_parser("issue", help="issue a new certificate")
     le_issue_parser.set_defaults(_command_parser=le_issue_parser)
-    le_issue_parser.add_argument("-d", "--domain", nargs="+", required=True, help="domain list")
+    le_issue_parser.add_argument("-d", "--domain", required=True, help="domain (e.g. example.com or *.example.com)")
     le_issue_parser.add_argument("--provider", default=None, help="validation provider")
     le_issue_parser.add_argument("--provider-config", type=str, default=None, help="provider config as JSON")
     le_issue_parser.add_argument("--challenge", default=None, choices=["dns-01", "http-01"], help="challenge type")
@@ -320,22 +320,6 @@ def _build_le_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentPar
 
     le_cron_uninstall_parser = le_cron_subparsers.add_parser("uninstall", help="uninstall auto-renew task")
     le_cron_uninstall_parser.set_defaults(_command_parser=le_cron_uninstall_parser)
-
-
-def _build_feishu_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
-    feishu_parser = subparsers.add_parser("feishu", help="manage Feishu client integration")
-    feishu_parser.set_defaults(_command_parser=feishu_parser)
-    feishu_subparsers = feishu_parser.add_subparsers(dest="feishu_command", help="feishu subcommands")
-
-    feishu_start_parser = feishu_subparsers.add_parser("start", help="start the Feishu WebSocket client")
-    feishu_start_parser.set_defaults(_command_parser=feishu_start_parser)
-    feishu_start_parser.add_argument("--config", type=str, default=None, help="config path")
-    feishu_start_parser.add_argument("--app-id", type=str, default=None, help="Feishu app ID")
-    feishu_start_parser.add_argument("--app-secret", type=str, default=None, help="Feishu app secret")
-
-    feishu_check_parser = feishu_subparsers.add_parser("check", help="check Feishu configuration")
-    feishu_check_parser.set_defaults(_command_parser=feishu_check_parser)
-    feishu_check_parser.add_argument("--config", type=str, default=None, help="config path")
 
 
 def main() -> None:
@@ -399,8 +383,8 @@ def main() -> None:
         handle_le(args)
         return
 
-    if args.command == "feishu":
-        handle_feishu(args)
+    if args.command == "image":
+        handle_image(args)
         return
 
     _print_help(args)
@@ -660,7 +644,7 @@ def handle_le(args: argparse.Namespace) -> None:
 
         le.obtain_cert(
             out_dir=issue_out_dir,
-            domains=args.domain,
+            domain=args.domain,
             provider=issue_provider,
             provider_config=issue_provider_config,
             staging=issue_staging,
@@ -702,42 +686,84 @@ def handle_le(args: argparse.Namespace) -> None:
         _print_help(args)
 
 
-def handle_feishu(args: argparse.Namespace) -> None:
-    """Dispatch feishu subcommands."""
-    from zxtoolbox.config_manager import load_feishu_config
-    from zxtoolbox.feishu_client import FeishuClient, create_client_from_config
+def _build_image_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
+    """Build parser for the ``image`` subcommand."""
+    image_parser = subparsers.add_parser("image", help="resize or compress images")
+    image_parser.set_defaults(_command_parser=image_parser)
+    image_subparsers = image_parser.add_subparsers(dest="image_command", help="image subcommands")
 
-    feishu_cmd = getattr(args, "feishu_command", None)
-    if feishu_cmd == "start":
-        if args.app_id and args.app_secret:
-            client = FeishuClient(app_id=args.app_id, app_secret=args.app_secret)
-            client.start()
-            return
+    # --- resize ---
+    resize_parser = image_subparsers.add_parser("resize", help="resize an image to given dimensions")
+    resize_parser.set_defaults(_command_parser=resize_parser)
+    resize_parser.add_argument("input", help="input image file")
+    resize_parser.add_argument("-w", "--width", type=int, default=None, help="target width in pixels")
+    resize_parser.add_argument("--height", type=int, default=None, help="target height in pixels")
+    resize_parser.add_argument("-o", "--output", type=str, default=None, help="output file path")
+
+    # --- compress ---
+    compress_parser = image_subparsers.add_parser("compress", help="compress an image to a smaller file size")
+    compress_parser.set_defaults(_command_parser=compress_parser)
+    compress_parser.add_argument("input", help="input image file")
+    compress_parser.add_argument("-s", "--max-size", type=str, default=None, help="target max size (e.g. 200K, 1.5M)")
+    compress_parser.add_argument("-q", "--quality", type=int, default=None, help="output quality 1-100")
+    compress_parser.add_argument("-o", "--output", type=str, default=None, help="output file path")
+    compress_parser.add_argument("-f", "--format", type=str, default=None, choices=["jpeg", "png", "webp"],
+                                 help="output format")
+
+
+def handle_image(args: argparse.Namespace) -> None:
+    """Dispatch ``image`` subcommands."""
+    from zxtoolbox.image_manager import resize_image, compress_image, parse_size
+
+    image_cmd = getattr(args, "image_command", None)
+
+    if image_cmd == "resize":
+        input_path = args.input
+        output_path = args.output
+        if not output_path:
+            stem = Path(input_path).stem
+            ext = Path(input_path).suffix
+            w = args.width or "_"
+            h = args.height or "_"
+            output_path = f"{stem}_{w}x{h}{ext}"
 
         try:
-            client = create_client_from_config(args.config)
-            client.start()
-        except FileNotFoundError as exc:
-            print(f"[ERROR] config file not found: {exc}")
-            print("Run `zxtool config init` or provide --app-id and --app-secret.")
-        except ValueError as exc:
-            print(f"[ERROR] invalid configuration: {exc}")
-    elif feishu_cmd == "check":
+            resize_image(
+                input_path=input_path,
+                output_path=output_path,
+                width=args.width,
+                height=args.height,
+            )
+        except (FileNotFoundError, ValueError) as exc:
+            print(f"[ERROR] {exc}")
+
+    elif image_cmd == "compress":
+        input_path = args.input
+        output_path = args.output
+        if not output_path:
+            stem = Path(input_path).stem
+            output_path = f"{stem}_compressed{Path(input_path).suffix}"
+
+        # Parse --max-size if given
+        max_size_bytes = None
+        if args.max_size:
+            try:
+                max_size_bytes = parse_size(args.max_size)
+            except ValueError as exc:
+                print(f"[ERROR] {exc}")
+                return
+
         try:
-            config = load_feishu_config(args.config)
-            if config.get("app_id") and config.get("app_secret"):
-                print("[OK] Feishu configuration is valid")
-                print(f"  App ID: {config['app_id'][:10]}...")
-                print("  Status: configured")
-            else:
-                print("[WARN] Feishu configuration is incomplete")
-                print("Add the following to zxtool.toml:")
-                print("[feishu]")
-                print('app_id = "cli_xxxxxxxxxxxxx"')
-                print('app_secret = "xxxxxxxxxxxxxxxxxxxx"')
-        except FileNotFoundError:
-            print("[ERROR] config file not found")
-            print("Run `zxtool config init` to initialize configuration.")
+            compress_image(
+                input_path=input_path,
+                output_path=output_path,
+                max_size=max_size_bytes,
+                quality=args.quality,
+                output_format=args.format,
+            )
+        except (FileNotFoundError, ValueError) as exc:
+            print(f"[ERROR] {exc}")
+
     else:
         _print_help(args)
 

@@ -759,3 +759,73 @@ class TestCliLetsEncrypt:
         with patch.object(sys, "argv", ["zxtool", "le", "status"]):
             cli.main()
         mock_status.assert_called_once()
+
+
+class TestCliImage:
+    """Test CLI image subcommand."""
+
+    @patch("zxtoolbox.logging_manager.setup_logging", return_value=None)
+    def test_image_no_subcommand_shows_help(self, _mock_setup_log, capsys):
+        with patch.object(sys, "argv", ["zxtool", "image"]):
+            cli.main()
+        captured = capsys.readouterr()
+        assert "resize" in captured.out.lower()
+        assert "compress" in captured.out.lower()
+
+    @patch("zxtoolbox.logging_manager.setup_logging", return_value=None)
+    @patch("zxtoolbox.image_manager.resize_image")
+    def test_image_resize(self, mock_resize, _mock_setup_log):
+        with patch.object(sys, "argv", ["zxtool", "image", "resize", "photo.jpg", "-w", "100"]):
+            cli.main()
+        mock_resize.assert_called_once_with(
+            input_path="photo.jpg",
+            output_path="photo_100x_.jpg",
+            width=100,
+            height=None,
+        )
+
+    @patch("zxtoolbox.logging_manager.setup_logging", return_value=None)
+    @patch("zxtoolbox.image_manager.resize_image")
+    def test_image_resize_with_output(self, mock_resize, _mock_setup_log):
+        with patch.object(
+            sys,
+            "argv",
+            ["zxtool", "image", "resize", "photo.jpg", "-w", "200", "--height", "150", "-o", "out.jpg"],
+        ):
+            cli.main()
+        mock_resize.assert_called_once_with(
+            input_path="photo.jpg",
+            output_path="out.jpg",
+            width=200,
+            height=150,
+        )
+
+    @patch("zxtoolbox.logging_manager.setup_logging", return_value=None)
+    @patch("zxtoolbox.image_manager.compress_image")
+    def test_image_compress(self, mock_compress, _mock_setup_log):
+        with patch.object(sys, "argv", ["zxtool", "image", "compress", "photo.jpg", "-s", "200K"]):
+            cli.main()
+        mock_compress.assert_called_once_with(
+            input_path="photo.jpg",
+            output_path="photo_compressed.jpg",
+            max_size=204800,
+            quality=None,
+            output_format=None,
+        )
+
+    @patch("zxtoolbox.logging_manager.setup_logging", return_value=None)
+    @patch("zxtoolbox.image_manager.compress_image")
+    def test_image_compress_with_format(self, mock_compress, _mock_setup_log):
+        with patch.object(
+            sys,
+            "argv",
+            ["zxtool", "image", "compress", "photo.png", "-s", "1M", "-q", "80", "-o", "out.jpg", "-f", "jpeg"],
+        ):
+            cli.main()
+        mock_compress.assert_called_once_with(
+            input_path="photo.png",
+            output_path="out.jpg",
+            max_size=1_048_576,
+            quality=80,
+            output_format="jpeg",
+        )

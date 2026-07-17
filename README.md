@@ -3,7 +3,7 @@
 A collection of tools for frequently performed repetitive tasks on Windows, Mac, and Linux systems
 
 <div align="center">
-![](./assets/imags/logo.png)
+![](logo.png)
 </div>
 
 <div align="center">

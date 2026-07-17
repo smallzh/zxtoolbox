@@ -58,7 +58,6 @@ src/zxtoolbox/
 ├── ssl_cert.py          # Self-signed SSL cert generation
 ├── letsencrypt.py       # Let's Encrypt ACME v2 certs (acme.sh)
 ├── nginx_manager.py     # Nginx site config generation
-├── feishu_client.py     # Feishu (Lark) bot via WebSocket
 ├── video_download.py    # yt-dlp video download
 ├── pyopt_2fa.py         # TOTP code generation
 ├── epub_manager.py      # EPUB to Markdown conversion
@@ -108,11 +107,9 @@ src/zxtoolbox/
 | `backup` | `copy` | Directory copy with backup |
 | `mkpdf` | — | Markdown to PDF (needs Edge/Chrome) |
 | `le` | `issue`, `renew`, `batch`, `status`, `revoke`, `init`, `cron` | Let's Encrypt cert management |
-| `feishu` | `start`, `check` | Feishu bot client |
 
 ### Notable details
 
 - **mkpdf_manager.py** requires Edge, Chrome, or Chromium installed for headless PDF printing. Mermaid rendering uses a bundled JS file (no CDN dependency).
 - **letsencrypt.py** wraps `acme.sh` as a subprocess for certificate operations.
 - **logging_manager.py** is called once by `cli.py` at startup. Most test files use `@patch("zxtoolbox.logging_manager.setup_logging")` to suppress it.
-- **feishu_client.py** uses lark-oapi WebSocket for real-time message events; commands received via chat can trigger `git pull` or `mkdocs batch`.

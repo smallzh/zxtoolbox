@@ -1,5 +1,9 @@
 # Git 仓库管理
 
+<div align="center">
+<img src = "../assets/images/screwdriver.webp" />
+</div>
+
 管理 Git 仓库的 `.git/config` 中的 `user.name` 和 `user.email` 配置，以及从远程仓库拉取更新。
 
 ## 0x01. 功能特性

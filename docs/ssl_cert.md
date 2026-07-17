@@ -9,7 +9,7 @@
 1. 可创建任意数量的网站证书，只需导入一次根证书
 2. 减少重复的组织信息输入，创建证书时只需要输入域名
 3. 泛域名证书可减少 nginx 配置，一个证书覆盖所有子域名
-4. 支持 SAN（Subject Alternative Name），一个证书支持多个域名
+4. 支持 SAN（Subject Alternative Name），自动包含域名变体
 
 ## 0x02. 系统要求
 
@@ -33,11 +33,11 @@ zxtool ssl <子命令> [选项]
 为指定域名签发泛域名 SSL 证书。首次运行时会自动生成 Root CA。
 
 ```bash
-# 为单个域名生成证书
+# 为单域名生成证书
 zxtool ssl cert -d example.dev
 
-# 为多个域名生成证书
-zxtool ssl cert -d example.dev another.dev third.dev
+# 为泛域名生成证书
+zxtool ssl cert -d "*.example.dev"
 
 # 指定输出目录
 zxtool ssl cert -d example.dev --output /path/to/certs
@@ -45,14 +45,14 @@ zxtool ssl cert -d example.dev --output /path/to/certs
 
 | 参数 | 说明 |
 |------|------|
-| `-d, --domain` | 域名列表（必需） |
+| `-d, --domain` | 域名，如 example.dev 或 *.example.dev（必需） |
 | `--output` | 输出目录路径（默认 `./out`） |
 
 **输出示例：**
 
 ```
-Issuing wildcard certificate for: example.dev, another.dev
-  SAN: DNS:*.example.dev,DNS:example.dev,DNS:*.another.dev,DNS:another.dev
+Issuing certificate for: example.dev
+  SAN: DNS:example.dev,DNS:*.example.dev
 
 Certificates generated for: example.dev
   Domain dir: /path/to/out/example.dev
