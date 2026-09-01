@@ -45,11 +45,7 @@ def build_parser() -> argparse.ArgumentParser:
     totp_parser.set_defaults(_command_parser=totp_parser)
     totp_parser.add_argument("-k", "--key", type=str, required=True, help="TOTP secret key")
 
-    video_parser = subparsers.add_parser("video", help="download online video")
-    video_parser.set_defaults(_command_parser=video_parser)
-    video_parser.add_argument("-u", "--url", type=str, required=True, help="video URL")
-    video_parser.add_argument("-o", "--output", type=str, default=None, help="output path")
-
+    _build_video_parser(subparsers)
     _build_http_parser(subparsers)
     _build_ssl_parser(subparsers)
     _build_mkdocs_parser(subparsers)
@@ -62,6 +58,69 @@ def build_parser() -> argparse.ArgumentParser:
     _build_le_parser(subparsers)
     _build_image_parser(subparsers)
     return parser
+
+
+def _build_video_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
+    video_parser = subparsers.add_parser(
+        "video",
+        help="video utilities: download online videos or extract audio",
+    )
+    video_parser.set_defaults(_command_parser=video_parser)
+    video_subparsers = video_parser.add_subparsers(dest="video_command", help="video subcommands")
+
+    download_parser = video_subparsers.add_parser("download", help="download an online video")
+    download_parser.set_defaults(_command_parser=download_parser)
+    download_parser.add_argument("-u", "--url", type=str, required=True, help="video URL")
+    download_parser.add_argument("-o", "--output", type=str, default=None, help="output path")
+
+    audio_parser = video_subparsers.add_parser(
+        "audio",
+        help="extract audio from a local video file",
+    )
+    audio_parser.set_defaults(_command_parser=audio_parser)
+    audio_parser.add_argument("-f", "--file", type=str, required=True, help="local video file")
+    audio_parser.add_argument(
+        "-o",
+        "--output",
+        type=str,
+        default=None,
+        help="output path (audio file or directory)",
+    )
+    audio_parser.add_argument(
+        "-t",
+        "--format",
+        type=str,
+        default="mp3",
+        choices=list(vd.AUDIO_FORMATS),
+        help="audio format (default: mp3)",
+    )
+    audio_parser.add_argument(
+        "-b",
+        "--bitrate",
+        type=str,
+        default="192k",
+        help="audio bitrate for lossy formats (default: 192k)",
+    )
+
+
+def handle_video(args: argparse.Namespace) -> None:
+    """Dispatch video subcommands."""
+    video_command = getattr(args, "video_command", None)
+
+    if video_command == "download":
+        vd.download_with_progress(args.url, args.output)
+        return
+
+    if video_command == "audio":
+        vd.extract_audio(
+            args.file,
+            output_path=args.output,
+            audio_format=args.format,
+            bitrate=args.bitrate,
+        )
+        return
+
+    _print_help(args)
 
 
 def _build_http_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
@@ -340,7 +399,7 @@ def main() -> None:
         return
 
     if args.command == "video":
-        vd.download_with_progress(args.url, args.output)
+        handle_video(args)
         return
 
     if args.command == "http":

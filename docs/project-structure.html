@@ -1,0 +1,439 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>zxtoolbox 项目结构文档</title>
+<style>
+  :root {
+    --bg: #f6f8fa;
+    --panel: #ffffff;
+    --text: #1f2328;
+    --muted: #57606a;
+    --accent: #0969da;
+    --accent-soft: #ddf4ff;
+    --green: #1a7f37;
+    --green-soft: #dafbe1;
+    --orange: #9a6700;
+    --orange-soft: #fff8c5;
+    --purple: #8250df;
+    --border: #d0d7de;
+    --code-bg: #f0f3f6;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", "PingFang SC", sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.7;
+    padding: 32px 16px 64px;
+  }
+  .container { max-width: 1080px; margin: 0 auto; }
+  header.hero {
+    background: linear-gradient(135deg, #0b2e59 0%, #0969da 100%);
+    color: #fff;
+    border-radius: 16px;
+    padding: 40px 36px;
+    margin-bottom: 28px;
+  }
+  header.hero h1 { font-size: 28px; margin-bottom: 8px; }
+  header.hero p { opacity: .9; font-size: 15px; }
+  .badges { margin-top: 16px; display: flex; flex-wrap: wrap; gap: 8px; }
+  .badge {
+    background: rgba(255,255,255,.15);
+    border: 1px solid rgba(255,255,255,.35);
+    border-radius: 999px;
+    padding: 3px 14px;
+    font-size: 13px;
+  }
+  .section {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 28px;
+    margin-bottom: 24px;
+  }
+  .section h2 {
+    font-size: 20px;
+    margin-bottom: 18px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .section h2 .num {
+    background: var(--accent);
+    color: #fff;
+    width: 28px; height: 28px;
+    border-radius: 8px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+    flex-shrink: 0;
+  }
+  .overview-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; }
+  .info-card {
+    background: var(--code-bg);
+    border-radius: 10px;
+    padding: 16px 18px;
+  }
+  .info-card .label { font-size: 13px; color: var(--muted); }
+  .info-card .value { font-size: 16px; font-weight: 600; margin-top: 4px; word-break: break-all; }
+  pre.tree {
+    background: #0d1117;
+    color: #c9d1d9;
+    border-radius: 10px;
+    padding: 20px 22px;
+    font-family: "Cascadia Code", Consolas, "Courier New", monospace;
+    font-size: 13.5px;
+    line-height: 1.75;
+    overflow-x: auto;
+  }
+  pre.tree .dir { color: #79c0ff; font-weight: 600; }
+  pre.tree .cmt { color: #8b949e; }
+  table { width: 100%; border-collapse: collapse; font-size: 14.5px; }
+  th, td { padding: 10px 12px; text-align: left; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { background: var(--code-bg); font-weight: 600; white-space: nowrap; }
+  tr:hover td { background: #f9fbfd; }
+  code {
+    font-family: Consolas, "Courier New", monospace;
+    background: var(--code-bg);
+    border-radius: 5px;
+    padding: 1.5px 7px;
+    font-size: 13px;
+    color: #cf222e;
+  }
+  td.file-cell { white-space: nowrap; }
+  .tag {
+    display: inline-block;
+    font-size: 12px;
+    border-radius: 999px;
+    padding: 1px 10px;
+    margin-right: 4px;
+    font-weight: 500;
+  }
+  .tag-core { background: var(--accent-soft); color: var(--accent); }
+  .tag-cli { background: var(--green-soft); color: var(--green); }
+  .tag-support { background: var(--orange-soft); color: var(--orange); }
+  .flow { display: flex; flex-direction: column; gap: 0; }
+  .flow-step {
+    display: flex;
+    gap: 16px;
+    position: relative;
+    padding-bottom: 22px;
+  }
+  .flow-step:last-child { padding-bottom: 0; }
+  .flow-step::before {
+    content: "";
+    position: absolute;
+    left: 17px; top: 36px; bottom: 0;
+    width: 2px;
+    background: var(--border);
+  }
+  .flow-step:last-child::before { display: none; }
+  .flow-icon {
+    width: 36px; height: 36px;
+    background: var(--accent-soft);
+    color: var(--accent);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 16px;
+    flex-shrink: 0;
+    z-index: 1;
+  }
+  .flow-body { flex: 1; }
+  .flow-body h3 { font-size: 15.5px; margin-bottom: 4px; }
+  .flow-body p { color: var(--muted); font-size: 14px; }
+  pre.cmd {
+    background: #0d1117;
+    color: #c9d1d9;
+    border-radius: 8px;
+    padding: 12px 16px;
+    font-family: Consolas, "Courier New", monospace;
+    font-size: 13px;
+    margin-top: 8px;
+    overflow-x: auto;
+  }
+  pre.cmd .p { color: #8b949e; }
+  pre.cmd .kw { color: #79c0ff; }
+  .note {
+    background: var(--orange-soft);
+    border-left: 4px solid #d4a72c;
+    border-radius: 6px;
+    padding: 12px 16px;
+    font-size: 14px;
+    margin-top: 14px;
+  }
+  .subcmd { color: var(--muted); font-size: 13px; }
+  footer { text-align: center; color: var(--muted); font-size: 13px; margin-top: 8px; }
+</style>
+</head>
+<body>
+<div class="container">
+
+  <header class="hero">
+    <h1>zxtoolbox 项目结构文档</h1>
+    <p>Windows / Mac / Linux 系统中常用重复性操作的命令行工具集，基于 uv 构建管理</p>
+    <div class="badges">
+      <span class="badge">📦 zxtoolbox v1.10.13</span>
+      <span class="badge">🐍 Python ≥ 3.13</span>
+      <span class="badge">🔧 构建后端：uv_build</span>
+      <span class="badge">🚪 入口命令：zxtool</span>
+    </div>
+  </header>
+
+  <!-- 1. 项目概览 -->
+  <section class="section">
+    <h2><span class="num">1</span>项目概览</h2>
+    <div class="overview-grid">
+      <div class="info-card"><div class="label">项目名称</div><div class="value">zxtoolbox</div></div>
+      <div class="info-card"><div class="label">项目定位</div><div class="value">个人效率工具集 CLI</div></div>
+      <div class="info-card"><div class="label">包管理器</div><div class="value">uv（uv.lock 锁定版本）</div></div>
+      <div class="info-card"><div class="label">CLI 入口</div><div class="value">zxtoolbox.cli:main</div></div>
+      <div class="info-card"><div class="label">源码规模</div><div class="value">17 个模块 / 约 8700 行</div></div>
+      <div class="info-card"><div class="label">测试框架</div><div class="value">pytest（dev 依赖组）</div></div>
+    </div>
+  </section>
+
+  <!-- 2. 目录结构 -->
+  <section class="section">
+    <h2><span class="num">2</span>目录结构总览</h2>
+<pre class="tree"><span class="dir">toolbox/</span>
+├── <span class="dir">src/zxtoolbox/</span>          <span class="cmt"># 主包源码（uv 标准布局）</span>
+│   ├── cli.py             <span class="cmt"># CLI 总入口，注册所有子命令并分发</span>
+│   ├── computer_info.py   <span class="cmt"># 计算机软硬件信息采集</span>
+│   ├── config_manager.py  <span class="cmt"># ~/.config/zxtool.toml 配置管理</span>
+│   ├── git_config.py      <span class="cmt"># Git 用户配置 / pull / clone</span>
+│   ├── backup_manager.py  <span class="cmt"># 目录备份复制（git-aware）</span>
+│   ├── letsencrypt.py     <span class="cmt"># Let's Encrypt 证书（acme.sh 封装）</span>
+│   ├── ssl_cert.py        <span class="cmt"># 自签泛域名 SSL 证书生成</span>
+│   ├── nginx_manager.py   <span class="cmt"># Nginx 站点配置生成与启停</span>
+│   ├── mkdocs_manager.py  <span class="cmt"># MkDocs 项目创建 / 构建</span>
+│   ├── mkpdf_manager.py   <span class="cmt"># Markdown 转 PDF</span>
+│   ├── epub_manager.py    <span class="cmt"># EPUB 转 Markdown</span>
+│   ├── video_download.py  <span class="cmt"># 在线视频下载（yt-dlp 封装）</span>
+│   ├── http_server.py     <span class="cmt"># 静态文件 / 视频播放 HTTP 服务</span>
+│   ├── image_manager.py   <span class="cmt"># 图片压缩与缩放（Pillow）</span>
+│   ├── pyopt_2fa.py       <span class="cmt"># TOTP 两步验证码解析</span>
+│   ├── logging_manager.py <span class="cmt"># 统一日志配置</span>
+│   ├── <span class="dir">assets/</span>            <span class="cmt"># 内置前端资源（mermaid / xgplayer 等）</span>
+│   └── <span class="dir">test/</span>              <span class="cmt"># pytest 单元测试（每个模块一一对应）</span>
+├── <span class="dir">docs/</span>                  <span class="cmt"># MkDocs 文档站源文件</span>
+├── pyproject.toml         <span class="cmt"># 项目元数据、依赖、入口脚本</span>
+├── uv.lock                <span class="cmt"># uv 锁定的完整依赖版本</span>
+├── mkdocs.yml             <span class="cmt"># 文档站构建配置</span>
+├── README.md / README_zh.md
+└── .python-version        <span class="cmt"># uv 使用的 Python 版本（3.13）</span></pre>
+  </section>
+
+  <!-- 3. 核心文件与功能 -->
+  <section class="section">
+    <h2><span class="num">3</span>核心文件与功能说明</h2>
+    <table>
+      <thead>
+        <tr><th>文件</th><th>类型</th><th>功能说明</th><th>对应 CLI 子命令</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="file-cell"><code>cli.py</code></td>
+          <td><span class="tag tag-cli">入口</span></td>
+          <td>命令行总入口（779 行）。用 argparse 注册全部子命令，<code>main()</code> 中解析参数后按 <code>args.command</code> 分发到对应模块的 handler。</td>
+          <td class="subcmd">全部命令</td>
+        </tr>
+        <tr>
+          <td class="file-cell"><code>computer_info.py</code></td>
+          <td><span class="tag tag-core">核心</span></td>
+          <td>采集计算机信息：CPU（py-cpuinfo）、内存/磁盘/网络（psutil）、GPU（nvidia-ml-py），以 PrettyTable 表格输出摘要或详情。</td>
+          <td class="subcmd"><code>zxtool ci</code></td>
+        </tr>
+        <tr>
+          <td class="file-cell"><code>config_manager.py</code></td>
+          <td><span class="tag tag-core">核心</span></td>
+          <td>生成并管理 <code>~/.config/zxtool.toml</code> 全局配置，涵盖 MkDocs 项目、Git 用户、Let's Encrypt、Nginx 站点、日志等配置段；支持交互式初始化。</td>
+          <td class="subcmd"><code>zxtool config init / show</code></td>
+        </tr>
+        <tr>
+          <td class="file-cell"><code>git_config.py</code></td>
+          <td><span class="tag tag-core">核心</span></td>
+          <td>检查/填充 Git 仓库 <code>.git/config</code> 中的 user.name / user.email；支持从配置批量 pull、clone 项目。</td>
+          <td class="subcmd"><code>zxtool git config / pull</code></td>
+        </tr>
+        <tr>
+          <td class="file-cell"><code>backup_manager.py</code></td>
+          <td><span class="tag tag-core">核心</span></td>
+          <td>目录备份复制：带时间戳的增量备份目录（.zxtool_backups）与备份记录（backup-records.md），支持 git-aware 行为。</td>
+          <td class="subcmd"><code>zxtool backup copy</code></td>
+        </tr>
+        <tr>
+          <td class="file-cell"><code>letsencrypt.py</code></td>
+          <td><span class="tag tag-core">核心</span></td>
+          <td>封装 acme.sh 实现 ACME v2 证书管理（1245 行，最大模块）：安装 acme.sh、HTTP-01/DNS 泛域名签发、自动续签、批量签发、定时任务。</td>
+          <td class="subcmd"><code>zxtool le issue/renew/batch/status/revoke/cron</code></td>
+        </tr>
+        <tr>
+          <td class="file-cell"><code>ssl_cert.py</code></td>
+          <td><span class="tag tag-core">核心</span></td>
+          <td>自签证书生成器：生成 20 年有效期 Root CA，为单域名/泛域名签发 2 年有效期证书，用于开发环境 HTTPS 调试。</td>
+          <td class="subcmd"><code>zxtool ssl init/root/cert</code></td>
+        </tr>
+        <tr>
+          <td class="file-cell"><code>nginx_manager.py</code></td>
+          <td><span class="tag tag-core">核心</span></td>
+          <td>检查本机 Nginx 可用性；根据 zxtool.toml 项目配置生成站点配置文件，支持 enable / disable / reload。</td>
+          <td class="subcmd"><code>zxtool nginx check/generate/enable/disable/reload</code></td>
+        </tr>
+        <tr>
+          <td class="file-cell"><code>mkdocs_manager.py</code></td>
+          <td><span class="tag tag-core">核心</span></td>
+          <td>MkDocs 项目管理：创建新项目脚手架、构建单个项目、基于 TOML 配置批量构建多个项目。</td>
+          <td class="subcmd"><code>zxtool mkdocs create/build/batch/serve</code></td>
+        </tr>
+        <tr>
+          <td class="file-cell"><code>mkpdf_manager.py</code></td>
+          <td><span class="tag tag-core">核心</span></td>
+          <td>Markdown 转 PDF：Markdown 渲染 + 内置 Mermaid 离线运行时 + Edge/Chrome/Chromium 无头打印；支持单文件或目录合并转换。</td>
+          <td class="subcmd"><code>zxtool mkpdf</code></td>
+        </tr>
+        <tr>
+          <td class="file-cell"><code>epub_manager.py</code></td>
+          <td><span class="tag tag-core">核心</span></td>
+          <td>EPUB 电子书转 Markdown 目录（基于 epublib），保留章节结构与内嵌图片。</td>
+          <td class="subcmd"><code>zxtool epub convert</code></td>
+        </tr>
+        <tr>
+          <td class="file-cell"><code>video_download.py</code></td>
+          <td><span class="tag tag-core">核心</span></td>
+          <td>基于 yt-dlp 的在线视频下载，带进度显示；针对 Cloudflare 反爬自动降级为 curl-cffi 浏览器模拟重试。</td>
+          <td class="subcmd"><code>zxtool video</code></td>
+        </tr>
+        <tr>
+          <td class="file-cell"><code>http_server.py</code></td>
+          <td><span class="tag tag-core">核心</span></td>
+          <td>静态文件 HTTP 服务与本地 MP4 在线播放器（使用内置 xgplayer 资源），便于局域网预览。</td>
+          <td class="subcmd"><code>zxtool http serve / video</code></td>
+        </tr>
+        <tr>
+          <td class="file-cell"><code>image_manager.py</code></td>
+          <td><span class="tag tag-core">核心</span></td>
+          <td>图片处理工具：resize（改尺寸）与 compress（压体积），支持 JPEG / PNG / WebP，基于 Pillow。</td>
+          <td class="subcmd">库调用</td>
+        </tr>
+        <tr>
+          <td class="file-cell"><code>pyopt_2fa.py</code></td>
+          <td><span class="tag tag-support">辅助</span></td>
+          <td>解析 TOTP 密钥生成当前 2FA 验证码（pyotp），仅 16 行的小工具。</td>
+          <td class="subcmd"><code>zxtool totp</code></td>
+        </tr>
+        <tr>
+          <td class="file-cell"><code>logging_manager.py</code></td>
+          <td><span class="tag tag-support">辅助</span></td>
+          <td>统一日志初始化：格式、轮转（保留 7 份），供所有模块共用。</td>
+          <td class="subcmd">内部支撑</td>
+        </tr>
+        <tr>
+          <td class="file-cell"><code>assets/</code></td>
+          <td><span class="tag tag-support">资源</span></td>
+          <td>内置前端资源：mermaid.min.js（mkpdf 离线图表渲染）、xgplayer 播放器、player.css/js（http video 功能）。</td>
+          <td class="subcmd">被 mkpdf / http 使用</td>
+        </tr>
+        <tr>
+          <td class="file-cell"><code>test/</code></td>
+          <td><span class="tag tag-support">测试</span></td>
+          <td>pytest 单元测试，与每个功能模块一一对应（test_cli、test_computer_info……共 17 个测试文件）。</td>
+          <td class="subcmd">—</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- 4. 运行过程 -->
+  <section class="section">
+    <h2><span class="num">4</span>运行过程</h2>
+
+    <div class="flow">
+      <div class="flow-step">
+        <div class="flow-icon">①</div>
+        <div class="flow-body">
+          <h3>环境准备与安装依赖</h3>
+          <p>uv 读取 <code>.python-version</code> 确定 Python 3.13，依据 <code>pyproject.toml</code> + <code>uv.lock</code> 创建虚拟环境并安装精确版本的依赖。</p>
+<pre class="cmd"><span class="p"># 方式 A：全局安装为独立工具（推荐日常使用）</span>
+uv tool install zxtoolbox
+
+<span class="p"># 方式 B：开发模式，在本项目内同步依赖到 .venv</span>
+uv sync</pre>
+        </div>
+      </div>
+
+      <div class="flow-step">
+        <div class="flow-icon">②</div>
+        <div class="flow-body">
+          <h3>命令启动，进入 CLI 入口</h3>
+          <p><code>pyproject.toml</code> 中 <code>[project.scripts]</code> 定义了 <code>zxtool = "zxtoolbox.cli:main"</code>。执行 <code>zxtool &lt;子命令&gt;</code> 时，控制权交给 <code>cli.py</code> 的 <code>main()</code> 函数。</p>
+        </div>
+      </div>
+
+      <div class="flow-step">
+        <div class="flow-icon">③</div>
+        <div class="flow-body">
+          <h3>初始化日志 + 构建参数解析器</h3>
+          <p><code>main()</code> 先调用 <code>logging_manager.setup_logging()</code> 初始化统一日志，然后 <code>build_parser()</code> 用 argparse 注册所有子命令（ci / totp / video / http / ssl / mkdocs / nginx / config / git / epub / backup / mkpdf / le）。</p>
+        </div>
+      </div>
+
+      <div class="flow-step">
+        <div class="flow-icon">④</div>
+        <div class="flow-body">
+          <h3>解析并分发到功能模块</h3>
+          <p>按 <code>args.command</code> 逐个 if 分支分发到对应模块的 handler（如 <code>handle_ssl</code>、<code>handle_mkdocs</code>），handler 再调用各功能模块（ssl_cert / mkdocs_manager 等）完成实际工作并输出结果。</p>
+<pre class="cmd"><span class="p"># 常用命令示例</span>
+zxtool ci <span class="p"># 查看计算机信息（--all 查看详情）</span>
+zxtool mkpdf ./README.md <span class="p"># Markdown 转 PDF</span>
+zxtool ssl root <span class="p"># 生成根 CA</span>
+zxtool le issue -d example.com <span class="p"># 申请证书</span>
+zxtool git pull <span class="p"># 批量拉取配置的项目</span>
+zxtool http serve ./dist <span class="p"># 起静态文件服务</span></pre>
+        </div>
+      </div>
+
+      <div class="flow-step">
+        <div class="flow-icon">⑤</div>
+        <div class="flow-body">
+          <h3>运行测试（开发场景）</h3>
+          <p>pytest 从 <code>src/zxtoolbox/test/</code> 收集测试，各模块的测试文件独立可运行，也可以加覆盖率统计。</p>
+<pre class="cmd"><span class="p"># 运行全部测试</span>
+uv run pytest src/zxtoolbox/test/ -v
+
+<span class="p"># 运行单个文件 / 指定用例</span>
+uv run pytest src/zxtoolbox/test/test_cli.py -v
+uv run pytest src/zxtoolbox/test/test_cli.py::TestCliGit::test_git_config_check -v
+
+<span class="p"># 覆盖率</span>
+uv run pytest src/zxtoolbox/test/ --cov=zxtoolbox --cov-report=term-missing</pre>
+        </div>
+      </div>
+
+      <div class="flow-step">
+        <div class="flow-icon">⑥</div>
+        <div class="flow-body">
+          <h3>构建与发布（维护场景）</h3>
+          <p>uv_build 后端负责打包构建；项目还包含基于 MkDocs 的文档站，可用 mkdocs 命令本地预览或部署。</p>
+<pre class="cmd">uv build <span class="p"># 构建 wheel / sdist 到 dist/</span>
+uv run mkdocs serve <span class="p"># 本地预览文档站</span>
+uv run mkdocs build <span class="p"># 构建文档站到 site/</span></pre>
+        </div>
+      </div>
+    </div>
+
+    <div class="note">
+      💡 说明：<code>zxtool</code> 若通过 <code>uv tool install</code> 安装，命令全局可用；若采用开发模式（uv sync），则用 <code>uv run zxtool …</code> 在项目虚拟环境中执行。
+    </div>
+  </section>
+
+  <footer>zxtoolbox 项目结构文档 · 生成于 2026-09-01</footer>
+</div>
+</body>
+</html>

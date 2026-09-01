@@ -48,7 +48,7 @@ zxtool --help
 | `nginx` | Nginx 配置管理 | `zxtool nginx generate` |
 | `le` | Let's Encrypt 证书管理 | `zxtool le issue -d example.com` |
 | `ssl` | 自签 SSL 证书生成 | `zxtool ssl cert -d example.dev` |
-| `video` | 在线视频下载 | `zxtool video -u https://example.com/video` |
+| `video` | 视频工具（下载/提取音频） | `zxtool video download -u <URL>` / `zxtool video audio -f video.mp4` |
 | `totp` | TOTP 解析 | `zxtool totp -k SECRET_KEY` |
 | `epub` | EPUB 转 Markdown | `zxtool epub convert ./book.epub -o ./book_md` |
 | `backup` | 目录备份拷贝 | `zxtool backup copy ./src ./dst` |

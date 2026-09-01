@@ -85,27 +85,60 @@ class TestCliVideo:
 
     @patch("zxtoolbox.logging_manager.setup_logging", return_value=None)
     @patch("zxtoolbox.video_download.download_with_progress")
-    def test_video_with_url(self, mock_download, _mock_setup_log):
-        with patch.object(sys, "argv", ["zxtool", "video", "-u", "https://example.com"]):
+    def test_video_download_with_url(self, mock_download, _mock_setup_log):
+        with patch.object(
+            sys, "argv", ["zxtool", "video", "download", "-u", "https://example.com"]
+        ):
             cli.main()
         mock_download.assert_called_once_with("https://example.com", None)
 
     @patch("zxtoolbox.logging_manager.setup_logging", return_value=None)
     @patch("zxtoolbox.video_download.download_with_progress")
-    def test_video_with_url_and_output(self, mock_download, _mock_setup_log):
+    def test_video_download_with_url_and_output(self, mock_download, _mock_setup_log):
         with patch.object(
             sys,
             "argv",
-            ["zxtool", "video", "-u", "https://example.com", "-o", "/tmp/vid.mp4"],
+            ["zxtool", "video", "download", "-u", "https://example.com", "-o", "/tmp/vid.mp4"],
         ):
             cli.main()
         mock_download.assert_called_once_with("https://example.com", "/tmp/vid.mp4")
 
     @patch("zxtoolbox.logging_manager.setup_logging", return_value=None)
-    def test_video_without_url_shows_error(self, _mock_setup_log):
+    def test_video_no_subcommand_shows_help(self, _mock_setup_log, capsys):
         with patch.object(sys, "argv", ["zxtool", "video"]):
-            with pytest.raises(SystemExit):
-                cli.main()
+            cli.main()
+        captured = capsys.readouterr()
+        assert "video" in captured.out.lower()
+
+    @patch("zxtoolbox.logging_manager.setup_logging", return_value=None)
+    @patch("zxtoolbox.video_download.extract_audio")
+    def test_video_audio_defaults(self, mock_extract, _mock_setup_log):
+        with patch.object(
+            sys, "argv", ["zxtool", "video", "audio", "-f", "movie.mp4"]
+        ):
+            cli.main()
+        mock_extract.assert_called_once_with(
+            "movie.mp4", output_path=None, audio_format="mp3", bitrate="192k"
+        )
+
+    @patch("zxtoolbox.logging_manager.setup_logging", return_value=None)
+    @patch("zxtoolbox.video_download.extract_audio")
+    def test_video_audio_with_all_options(self, mock_extract, _mock_setup_log):
+        with patch.object(
+            sys,
+            "argv",
+            [
+                "zxtool", "video", "audio",
+                "-f", "movie.mp4",
+                "-o", "out/sound",
+                "-t", "flac",
+                "-b", "320k",
+            ],
+        ):
+            cli.main()
+        mock_extract.assert_called_once_with(
+            "movie.mp4", output_path="out/sound", audio_format="flac", bitrate="320k"
+        )
 
 
 class TestCliHttp:

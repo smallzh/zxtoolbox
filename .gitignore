@@ -149,6 +149,7 @@ cython_debug/
 .opencode/
 .traces
 .antigravitycli
+.workbuddy
 
 # test
 out_le
