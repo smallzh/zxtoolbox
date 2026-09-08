@@ -2,8 +2,6 @@
 
 从本地视频文件中提取音频并保存为音频文件（默认 mp3）。需要 ffmpeg 在 PATH 中。
 
-> 在线视频下载功能已迁移至独立项目 **zxtoolx**（`d:/zyj/files/zxworkstation_space/scripts/zxtoolx`），
-> 使用 `zxtoolx video download -u <URL>` 下载视频，详见该项目 README。
 
 ## 0x01. 提取音频
 
