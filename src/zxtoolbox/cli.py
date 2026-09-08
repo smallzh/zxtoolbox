@@ -19,7 +19,7 @@ import zxtoolbox.mkpdf_manager as mpdf
 import zxtoolbox.pyopt_2fa as opt2fa
 import zxtoolbox.ssl_cert as ssl
 import zxtoolbox.image_manager as imgm
-import zxtoolbox.video_download as vd
+import zxtoolbox.video_audio as vd
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -63,15 +63,10 @@ def build_parser() -> argparse.ArgumentParser:
 def _build_video_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
     video_parser = subparsers.add_parser(
         "video",
-        help="video utilities: download online videos or extract audio",
+        help="extract audio from local video files",
     )
     video_parser.set_defaults(_command_parser=video_parser)
     video_subparsers = video_parser.add_subparsers(dest="video_command", help="video subcommands")
-
-    download_parser = video_subparsers.add_parser("download", help="download an online video")
-    download_parser.set_defaults(_command_parser=download_parser)
-    download_parser.add_argument("-u", "--url", type=str, required=True, help="video URL")
-    download_parser.add_argument("-o", "--output", type=str, default=None, help="output path")
 
     audio_parser = video_subparsers.add_parser(
         "audio",
@@ -106,10 +101,6 @@ def _build_video_parser(subparsers: argparse._SubParsersAction[argparse.Argument
 def handle_video(args: argparse.Namespace) -> None:
     """Dispatch video subcommands."""
     video_command = getattr(args, "video_command", None)
-
-    if video_command == "download":
-        vd.download_with_progress(args.url, args.output)
-        return
 
     if video_command == "audio":
         vd.extract_audio(
@@ -747,7 +738,9 @@ def handle_le(args: argparse.Namespace) -> None:
 
 def _build_image_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
     """Build parser for the ``image`` subcommand."""
-    image_parser = subparsers.add_parser("image", help="resize or compress images")
+    image_parser = subparsers.add_parser(
+        "image", help="resize, compress or batch-convert images to WebP"
+    )
     image_parser.set_defaults(_command_parser=image_parser)
     image_subparsers = image_parser.add_subparsers(dest="image_command", help="image subcommands")
 
@@ -769,10 +762,43 @@ def _build_image_parser(subparsers: argparse._SubParsersAction[argparse.Argument
     compress_parser.add_argument("-f", "--format", type=str, default=None, choices=["jpeg", "png", "webp"],
                                  help="output format")
 
+    # --- batch ---
+    batch_parser = image_subparsers.add_parser(
+        "batch",
+        help="batch-compress all images in a directory into WebP",
+    )
+    batch_parser.set_defaults(_command_parser=batch_parser)
+    batch_parser.add_argument("directory", help="input directory containing images")
+    batch_parser.add_argument(
+        "-s",
+        "--max-size",
+        type=str,
+        default="20K",
+        help="target max size per image, e.g. 20K, 100K, 512000 (default: 20K)",
+    )
+    batch_parser.add_argument(
+        "-k",
+        "--keep-original",
+        action="store_true",
+        help="keep originals: move them into a backup directory instead of deleting",
+    )
+    batch_parser.add_argument(
+        "--backup-dir",
+        type=str,
+        default=None,
+        help="directory to store originals when --keep-original is set "
+             "(default: <directory>/originals)",
+    )
+
 
 def handle_image(args: argparse.Namespace) -> None:
     """Dispatch ``image`` subcommands."""
-    from zxtoolbox.image_manager import resize_image, compress_image, parse_size
+    from zxtoolbox.image_manager import (
+        resize_image,
+        compress_image,
+        batch_compress_webp,
+        parse_size,
+    )
 
     image_cmd = getattr(args, "image_command", None)
 
@@ -819,6 +845,23 @@ def handle_image(args: argparse.Namespace) -> None:
                 max_size=max_size_bytes,
                 quality=args.quality,
                 output_format=args.format,
+            )
+        except (FileNotFoundError, ValueError) as exc:
+            print(f"[ERROR] {exc}")
+
+    elif image_cmd == "batch":
+        try:
+            max_size_bytes = parse_size(args.max_size)
+        except ValueError as exc:
+            print(f"[ERROR] {exc}")
+            return
+
+        try:
+            batch_compress_webp(
+                directory=args.directory,
+                max_size=max_size_bytes,
+                keep_original=args.keep_original,
+                backup_dir=args.backup_dir,
             )
         except (FileNotFoundError, ValueError) as exc:
             print(f"[ERROR] {exc}")

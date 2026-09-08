@@ -48,11 +48,11 @@ zxtool --help
 | `nginx` | Nginx 配置管理 | `zxtool nginx generate` |
 | `le` | Let's Encrypt 证书管理 | `zxtool le issue -d example.com` |
 | `ssl` | 自签 SSL 证书生成 | `zxtool ssl cert -d example.dev` |
-| `video` | 视频工具（下载/提取音频） | `zxtool video download -u <URL>` / `zxtool video audio -f video.mp4` |
+| `video` | 视频音频提取 | `zxtool video audio -f video.mp4` |
 | `totp` | TOTP 解析 | `zxtool totp -k SECRET_KEY` |
 | `epub` | EPUB 转 Markdown | `zxtool epub convert ./book.epub -o ./book_md` |
 | `backup` | 目录备份拷贝 | `zxtool backup copy ./src ./dst` |
-| `image` | 图片压缩与尺寸调整 | `zxtool image resize photo.jpg -w 128` |
+| `image` | 图片压缩/调整/批量转 WebP | `zxtool image batch ./photos -k` |
 | `http` | 静态文件 HTTP 服务 | `zxtool http serve ./dist -p 8000` |
 | `config` | 配置文件管理 | `zxtool config init` |
 | `git` | Git 仓库管理（配置/拉取） | `zxtool git config fill` / `zxtool git pull` |
@@ -70,7 +70,6 @@ zxtool --help
 | py-cpuinfo | CPU 信息 | [github.com](https://github.com/workhorsy/py-cpuinfo) |
 | nvidia-ml-py | NVIDIA GPU 信息 | [github.com](https://github.com/NVIDIA/nvidia-ml-py) |
 | pyotp | 2FA 一次性密码 | [github.com](https://github.com/pyauth/pyotp) |
-| yt-dlp | 视频下载 | [github.com](https://github.com/yt-dlp/yt-dlp) |
 | pyyaml | YAML 解析 | [pyyaml.org](https://pyyaml.org/) |
 | acme | ACME 协议（Let's Encrypt） | [github.com](https://github.com/certbot/certbot) |
 | cryptography | 加密功能 | [cryptography.io](https://cryptography.io/) |

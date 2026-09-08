@@ -58,7 +58,7 @@ src/zxtoolbox/
 ├── ssl_cert.py          # Self-signed SSL cert generation
 ├── letsencrypt.py       # Let's Encrypt ACME v2 certs (acme.sh)
 ├── nginx_manager.py     # Nginx site config generation
-├── video_download.py    # yt-dlp video download
+├── video_audio.py      # audio extraction from local video
 ├── pyopt_2fa.py         # TOTP code generation
 ├── epub_manager.py      # EPUB to Markdown conversion
 ├── backup_manager.py    # Directory copy with backup/git commit
@@ -79,7 +79,7 @@ src/zxtoolbox/
     ├── test_nginx_manager.py
     ├── test_pyopt_2fa.py
     ├── test_ssl_cert.py
-    ├── test_video_download.py
+    ├── test_video_audio.py
 ```
 
 ### Key patterns
@@ -96,7 +96,7 @@ src/zxtoolbox/
 |---------|-------------|-------------|
 | `ci` | — | Show computer info (summary or `--all`) |
 | `totp` | — | Generate TOTP code from key |
-| `video` | — | Download video via yt-dlp |
+| `video` | `audio` | Extract audio from local video (mp3 default) |
 | `http` | `serve` | Static file HTTP server |
 | `ssl` | `init`, `root`, `cert` | Self-signed SSL cert management |
 | `mkdocs` | `create`, `build`, `batch`, `serve` | MkDocs project management |

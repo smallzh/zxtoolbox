@@ -8,10 +8,11 @@
 
 ## 0x01. 功能概述
 
-图片管理模块提供两个核心功能：
+图片管理模块提供三个核心功能：
 
 1. **尺寸调整 (resize)** - 改变图片的宽高尺寸，保持内容完整不变
 2. **大小压缩 (compress)** - 减小图片文件体积，保持尺寸不变
+3. **批量压缩 (batch)** - 将目录内全部图片统一转换为 WebP，可控制在目标大小内
 
 ## 0x02. 命令格式
 
@@ -23,6 +24,7 @@ zxtool image <子命令> [选项]
 |--------|------|
 | `resize` | 调整图片尺寸 |
 | `compress` | 压缩图片大小 |
+| `batch` | 批量压缩目录内图片为 WebP |
 
 ## 0x03. resize — 尺寸调整
 
@@ -93,10 +95,50 @@ zxtool image compress photo.png -s 500K -f webp
 zxtool image compress photo.jpg -s 1M -o compressed.jpg
 ```
 
-## 0x05. 支持的文件格式
+## 0x05. batch — 批量压缩为 WebP
 
-| 格式 | resize | compress | 质量参数 |
-|------|--------|----------|----------|
-| JPEG | ✅ | ✅ | 支持（二分搜索质量） |
-| PNG | ✅ | ✅ | 不支持（仅 optimize） |
-| WebP | ✅ | ✅ | 支持（二分搜索质量） |
+将目录内的所有图片（仅当前目录，不递归子目录）统一压缩为 WebP 格式，输出文件名与源文件同名（扩展名改为 `.webp`）。
+
+```bash
+zxtool image batch <directory> [-s MAX_SIZE] [-k] [--backup-dir DIR]
+```
+
+| 参数 | 说明 |
+|------|------|
+| `directory` | 输入图片目录（必需，只处理顶层文件） |
+| `-s, --max-size` | 目标大小（如 `20K`、`100K`），默认 `20K` |
+| `-k, --keep-original` | 保留原图：将原图移入备份目录而不是删除 |
+| `--backup-dir` | 原图备份目录（与 `-k` 搭配，默认 `<directory>/originals`） |
+
+**处理规则：**
+
+- 源文件大小 ≤ 阈值（默认 20K）的图片**不压缩**，原地保留并跳过
+- 超过阈值的图片做一次质量搜索压缩为 WebP：
+  - 未传 `-k`：转换成功后**删除原文件**
+  - 传了 `-k`：原文件先**移入备份目录**，主目录只留 WebP
+- 若质量降到最低仍超过阈值，保留当前最优结果并给出 `[WARN]` 提示（不缩小分辨率）
+- 文件名冲突时备份文件自动追加序号（如 `photo_1.jpg`）
+
+**示例：**
+
+```bash
+# 将 photos 目录下所有大图压缩为 <20K 的 webp，原图删除
+zxtool image batch ./photos
+
+# 指定 100K 阈值
+zxtool image batch ./photos -s 100K
+
+# 保留原图：原图自动移入 ./photos/originals
+zxtool image batch ./photos -k
+
+# 自定义备份目录
+zxtool image batch ./photos -k --backup-dir /backup/photos
+```
+
+## 0x06. 支持的文件格式
+
+| 格式 | resize | compress | batch 转换 | 质量参数 |
+|------|--------|----------|------------|----------|
+| JPEG | ✅ | ✅ | ✅ | 支持（二分搜索质量） |
+| PNG | ✅ | ✅ | ✅ | 不支持（仅 optimize） |
+| WebP | ✅ | ✅ | ✅ | 支持（二分搜索质量） |

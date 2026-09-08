@@ -40,7 +40,7 @@ toolbox/
 │   ├── mkdocs_manager.md  # MkDocs 项目管理文档
 │   ├── nginx_manager.md   # Nginx 站点配置文档
 │   ├── ssl_cert.md        # SSL 证书生成文档
-│   └── video_download.md  # 视频下载文档
+│   └── video_audio.md    # 视频音频提取文档
 ├── src/                   # 源代码目录
 │   └── zxtoolbox/         # 主包
 │       ├── __init__.py    # 包初始化，包含 cowsay 函数
@@ -52,7 +52,7 @@ toolbox/
 │       ├── mkdocs_manager.py   # MkDocs 项目管理
 │       ├── pyopt_2fa.py        # 2FA 工具
 │       ├── ssl_cert.py         # SSL 证书生成
-│       ├── video_download.py   # 视频下载
+│       ├── video_audio.py     # 视频音频提取
 │       └── test/          # 测试目录
 ├── dist/                  # 构建输出目录
 ├── .gitignore            # Git 忽略配置
@@ -131,9 +131,9 @@ uv run zxtool
 - 证书到期自动检测和续签
 - 支持自动安装 acme.sh
 
-### 8. 视频下载 (`video_download.py`)
-- 基于 yt-dlp 下载在线视频
-- 支持 FFmpeg 音视频合并
+### 8. 视频音频提取 (`video_audio.py`)
+- 从本地视频文件提取音频（默认 mp3）
+- 支持 FFmpeg 重编码，多种输出格式
 
 ### 10. 2FA 工具 (`pyopt_2fa.py`)
 - 生成 2FA 一次性密码

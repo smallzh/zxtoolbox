@@ -1,6 +1,7 @@
 """Tests for zxtoolbox.image_manager module."""
 
 import io
+import random
 from pathlib import Path
 from unittest.mock import patch
 
@@ -14,6 +15,7 @@ from zxtoolbox.image_manager import (
     parse_size,
     resize_image,
     compress_image,
+    batch_compress_webp,
 )
 
 
@@ -214,3 +216,149 @@ class TestCompress:
         out = tmp_path / "out.jpg"
         compress_image(rgb_image, out)
         assert out.exists()
+
+
+# ── Test batch webp compression ──────────────────────────────────────────────
+
+
+class TestBatchCompressWebp:
+    """Test batch WebP compression."""
+
+    @staticmethod
+    def _make_noisy(path: Path, size: int = 400, quality: int = 95) -> Path:
+        """Create a noisy image guaranteed to be much larger than a few KB."""
+        rnd = random.Random(42)
+        img = Image.new("RGB", (size, size))
+        pixels = [
+            (rnd.randrange(256), rnd.randrange(256), rnd.randrange(256))
+            for _ in range(size * size)
+        ]
+        img.putdata(pixels)
+        img.save(path, format="PNG" if path.suffix == ".png" else "JPEG", quality=quality)
+        return path
+
+    @staticmethod
+    def _make_tiny_png(path: Path) -> Path:
+        img = Image.new("RGB", (4, 4), color="blue")
+        img.save(path, format="PNG")
+        return path
+
+    def test_batch_deletes_original_and_writes_webp(self, tmp_path: Path):
+        photo = self._make_noisy(tmp_path / "photo.jpg")
+        threshold = photo.stat().st_size // 2
+
+        summary = batch_compress_webp(tmp_path, max_size=threshold)
+
+        assert summary == {"converted": 1, "skipped": 0, "failed": 0}
+        out = tmp_path / "photo.webp"
+        assert out.exists()
+        assert not photo.exists()
+        with Image.open(out) as img:
+            assert img.format == "WEBP"
+            assert img.size == (400, 400)
+
+    def test_batch_keep_original_moves_to_backup_dir(self, tmp_path: Path):
+        photo = self._make_noisy(tmp_path / "photo.jpg")
+        threshold = photo.stat().st_size // 2
+
+        summary = batch_compress_webp(tmp_path, max_size=threshold, keep_original=True)
+
+        assert summary["converted"] == 1
+        originals = tmp_path / "originals"
+        assert originals.is_dir()
+        assert (originals / "photo.jpg").exists()
+        assert (tmp_path / "photo.webp").exists()
+        assert not photo.exists()
+
+    def test_batch_keep_original_custom_backup_dir(self, tmp_path: Path):
+        photo = self._make_noisy(tmp_path / "photo.jpg")
+        threshold = photo.stat().st_size // 2
+        bak = tmp_path / "my_backup"
+
+        batch_compress_webp(
+            tmp_path, max_size=threshold, keep_original=True, backup_dir=bak
+        )
+
+        assert (bak / "photo.jpg").exists()
+        assert (tmp_path / "photo.webp").exists()
+
+    def test_batch_keep_original_avoids_name_conflicts(self, tmp_path: Path):
+        """Second run with the same filename must not overwrite a backup."""
+        photo = self._make_noisy(tmp_path / "photo.jpg")
+        threshold = photo.stat().st_size // 2
+        batch_compress_webp(tmp_path, max_size=threshold, keep_original=True)
+        assert (tmp_path / "originals" / "photo.jpg").exists()
+
+        # Simulate a second batch with a fresh image of the same name.
+        photo2 = self._make_noisy(tmp_path / "photo.jpg")
+        threshold2 = photo2.stat().st_size // 2
+        batch_compress_webp(tmp_path, max_size=threshold2, keep_original=True)
+        originals = tmp_path / "originals"
+        assert (originals / "photo_1.jpg").exists()
+
+    def test_batch_skips_small_images(self, tmp_path: Path):
+        noise = self._make_noisy(tmp_path / "big.jpg")
+        tiny = self._make_tiny_png(tmp_path / "small.png")
+        threshold = tiny.stat().st_size + 10  # only the tiny file is under threshold
+
+        summary = batch_compress_webp(tmp_path, max_size=threshold)
+
+        assert summary == {"converted": 1, "skipped": 1, "failed": 0}
+        assert tiny.exists()  # untouched
+        assert not (tmp_path / "small.webp").exists()
+        assert (tmp_path / "big.webp").exists()
+        assert not noise.exists()
+
+    def test_batch_skips_files_below_threshold_even_with_keep_original(
+        self, tmp_path: Path
+    ):
+        self._make_tiny_png(tmp_path / "small.png")
+        summary = batch_compress_webp(
+            tmp_path, max_size=1024 * 1024, keep_original=True
+        )
+        assert summary == {"converted": 0, "skipped": 1, "failed": 0}
+        assert (tmp_path / "small.png").exists()
+
+    def test_batch_webp_input_in_place(self, tmp_path: Path):
+        """Re-encoding a WebP in place must keep the file and not delete it."""
+        clip = tmp_path / "clip.webp"
+        rnd = random.Random(7)
+        img = Image.new("RGB", (300, 300))
+        img.putdata(
+            [
+                (rnd.randrange(256), rnd.randrange(256), rnd.randrange(256))
+                for _ in range(300 * 300)
+            ]
+        )
+        img.save(clip, format="WebP", quality=95)
+        threshold = clip.stat().st_size // 2
+
+        summary = batch_compress_webp(tmp_path, max_size=threshold)
+
+        assert summary == {"converted": 1, "skipped": 0, "failed": 0}
+        assert clip.exists()
+        with Image.open(clip) as opened:
+            assert opened.format == "WEBP"
+
+    def test_batch_warns_when_still_over_threshold(self, tmp_path: Path, capsys):
+        photo = self._make_noisy(tmp_path / "photo.jpg")
+
+        summary = batch_compress_webp(tmp_path, max_size=1)
+
+        assert summary["converted"] == 1
+        captured = capsys.readouterr().out
+        assert "still exceeds" in captured
+
+    def test_batch_ignores_non_image_files(self, tmp_path: Path):
+        (tmp_path / "readme.txt").write_text("hello")
+        summary = batch_compress_webp(tmp_path, max_size=1)
+        assert summary == {"converted": 0, "skipped": 0, "failed": 0}
+
+    def test_batch_empty_directory(self, tmp_path: Path, capsys):
+        summary = batch_compress_webp(tmp_path, max_size=1)
+        assert summary == {"converted": 0, "skipped": 0, "failed": 0}
+        assert "No supported images found" in capsys.readouterr().out
+
+    def test_batch_directory_not_found(self, tmp_path: Path):
+        with pytest.raises(FileNotFoundError, match="not found"):
+            batch_compress_webp(tmp_path / "missing", max_size=1)

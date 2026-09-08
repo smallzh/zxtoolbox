@@ -51,7 +51,7 @@ toolbox/
 │   ├── mkdocs_manager.md  # MkDocs 项目管理文档
 │   ├── mkpdf_manager.md   # Markdown 转 PDF 文档
 │   ├── ssl_cert.md        # SSL 证书生成文档
-│   └── video_download.md  # 视频下载文档
+│   └── video_audio.md    # 视频音频提取文档
 ├── src/                   # 源代码目录
 │   └── zxtoolbox/         # 主包
 │       ├── __init__.py    # 包初始化
@@ -64,7 +64,7 @@ toolbox/
 │       ├── mkpdf_manager.py    # Markdown 转 PDF
 │       ├── pyopt_2fa.py        # 2FA 工具
 │       ├── ssl_cert.py         # SSL 证书生成
-│       ├── video_download.py   # 视频下载
+│       ├── video_audio.py     # 视频音频提取
 │       └── test/          # 测试目录
 ├── pyproject.toml        # 项目配置和依赖
 ├── README.md             # 项目说明

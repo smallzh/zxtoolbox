@@ -1,18 +1,23 @@
 """Image compression and resizing utilities.
 
-Provides resize (dimension change) and compress (file-size reduction) operations
-for common image formats (JPEG, PNG, WebP). Uses Pillow (PIL) as the backend.
+Provides resize (dimension change), compress (file-size reduction) and batch
+WebP conversion for common image formats (JPEG, PNG, WebP). Uses Pillow (PIL)
+as the backend.
 
 Examples:
-    >>> from zxtoolbox.image_manager import resize_image, compress_image
+    >>> from zxtoolbox.image_manager import resize_image, compress_image, batch_compress_webp
     >>> resize_image("photo.jpg", "photo_thumb.jpg", width=128)
     >>> compress_image("photo.png", "photo_opt.jpg", max_size=200_000, output_format="jpeg")
+    >>> batch_compress_webp("./images", max_size=20_480, keep_original=True)
 """
 
 from __future__ import annotations
 
 import math
+import os
 import re
+import shutil
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -349,6 +354,158 @@ def _human_size(size_bytes: int) -> str:
     elif size_bytes >= 1024:
         return f"{size_bytes / 1024:.1f} KB"
     return f"{size_bytes} B"
+
+
+# ── Batch webp compression ──────────────────────────────────────────────────
+
+DEFAULT_MAX_SIZE_BYTES = 20 * 1024  # 20K default target
+
+
+def _unique_backup_path(backup_dir: Path, filename: str) -> Path:
+    """Return a non-conflicting path inside *backup_dir* for *filename*."""
+    candidate = backup_dir / filename
+    stem = Path(filename).stem
+    suffix = Path(filename).suffix
+    counter = 1
+    while candidate.exists():
+        candidate = backup_dir / f"{stem}_{counter}{suffix}"
+        counter += 1
+    return candidate
+
+
+def batch_compress_webp(
+    directory: str | Path,
+    max_size: int = DEFAULT_MAX_SIZE_BYTES,
+    keep_original: bool = False,
+    backup_dir: str | Path | None = None,
+) -> dict[str, int]:
+    """Batch-compress every supported image in *directory* into WebP.
+
+    Processes the top-level files of *directory* only (no recursion).
+    Each supported image (JPEG / PNG / WebP) is re-encoded as WebP with the
+    same file stem.  A single quality search pass is performed (best effort);
+    images that still exceed *max_size* are kept and reported.
+
+    Behavior:
+      * Files already at or below *max_size* are left untouched.
+      * ``keep_original=False``: the source file is deleted after a successful
+        conversion.
+      * ``keep_original=True``: the source file is moved first into
+        *backup_dir* (default: ``<directory>/originals``).
+
+    Args:
+        directory: Folder containing the images.
+        max_size: Target maximum file size in bytes (default 20 KiB).
+        keep_original: Whether to preserve the original files.
+        backup_dir: Where originals go when *keep_original* is True.
+
+    Returns:
+        A summary dict ``{"converted": n, "skipped": n, "failed": n}``.
+
+    Raises:
+        FileNotFoundError: If *directory* does not exist.
+    """
+    directory = Path(directory)
+    if not directory.is_dir():
+        raise FileNotFoundError(f"Input directory not found: {directory}")
+
+    if backup_dir is None:
+        backup_dir = directory / "originals"
+    else:
+        backup_dir = Path(backup_dir)
+
+    images = sorted(
+        path
+        for path in directory.iterdir()
+        if path.is_file() and path.suffix.lower() in _EXTENSION_MAP
+    )
+
+    summary = {"converted": 0, "skipped": 0, "failed": 0}
+    if not images:
+        print(f"No supported images found in: {directory}")
+        return summary
+
+    print(f"Batch compressing {len(images)} image(s) in: {directory}")
+    print(f"Target max size: {_human_size(max_size)}")
+    if keep_original:
+        backup_dir.mkdir(parents=True, exist_ok=True)
+        print(f"Originals will be kept in: {backup_dir}")
+    else:
+        print("Original files will be deleted after conversion")
+    print("-" * 60)
+
+    for path in images:
+        if path.stat().st_size <= max_size:
+            print(f"[SKIP] {path.name}: already {_human_size(path.stat().st_size)} (<= {_human_size(max_size)})")
+            summary["skipped"] += 1
+            continue
+
+        source = path
+        if keep_original:
+            backup_target = _unique_backup_path(backup_dir, path.name)
+            try:
+                shutil.move(str(path), str(backup_target))
+            except OSError as exc:
+                print(f"[ERROR] Cannot move original {path.name}: {exc}")
+                summary["failed"] += 1
+                continue
+            source = backup_target
+
+        output = directory / f"{path.stem}.webp"
+        was_in_place = source.resolve() == output.resolve()
+        try:
+            if was_in_place:
+                # Re-encoding a WebP in place: write to a temp file first.
+                fd, temp_name = tempfile.mkstemp(suffix=".webp", dir=directory)
+                os.close(fd)
+                try:
+                    compress_image(
+                        input_path=source,
+                        output_path=temp_name,
+                        max_size=max_size,
+                        output_format="webp",
+                    )
+                    os.replace(temp_name, output)
+                finally:
+                    if os.path.exists(temp_name):
+                        os.unlink(temp_name)
+            else:
+                compress_image(
+                    input_path=source,
+                    output_path=output,
+                    max_size=max_size,
+                    output_format="webp",
+                )
+        except (OSError, ValueError) as exc:
+            print(f"[ERROR] Failed to compress {path.name}: {exc}")
+            if keep_original:
+                try:
+                    shutil.move(str(backup_target), str(path))
+                except OSError:
+                    pass
+            summary["failed"] += 1
+            continue
+
+        if output.stat().st_size > max_size:
+            print(
+                f"[WARN] {output.name} still exceeds {_human_size(max_size)} "
+                f"(actual {_human_size(output.stat().st_size)}); kept best-effort result"
+            )
+
+        if not keep_original and not was_in_place:
+            try:
+                path.unlink()
+            except OSError as exc:
+                print(f"[WARN] Cannot delete original {path.name}: {exc}")
+
+        summary["converted"] += 1
+
+    print("-" * 60)
+    print(
+        f"Done: {summary['converted']} converted, "
+        f"{summary['skipped']} skipped, {summary['failed']} failed"
+    )
+    return summary
 
 
 if __name__ == "__main__":

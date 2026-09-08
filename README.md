@@ -50,7 +50,7 @@ toolbox/
 │   ├── letsencrypt.md     # Let's Encrypt certificate documentation
 │   ├── mkdocs_manager.md  # MkDocs project management documentation
 │   ├── ssl_cert.md        # SSL certificate generation documentation
-│   └── video_download.md  # Video download documentation
+│   └── video_audio.md    # Video audio extraction documentation
 ├── src/                   # Source code directory
 │   └── zxtoolbox/         # Main package
 │       ├── __init__.py    # Package initialization
@@ -62,7 +62,7 @@ toolbox/
 │       ├── mkdocs_manager.py   # MkDocs project management
 │       ├── pyopt_2fa.py        # 2FA tool
 │       ├── ssl_cert.py         # SSL certificate generation
-│       ├── video_download.py   # Video download
+│       ├── video_audio.py     # Video audio extraction
 │       └── test/          # Test directory
 ├── pyproject.toml        # Project configuration and dependencies
 ├── README.md             # Project description

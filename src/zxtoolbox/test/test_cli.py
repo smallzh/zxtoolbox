@@ -84,34 +84,7 @@ class TestCliVideo:
     """Test CLI video subcommand."""
 
     @patch("zxtoolbox.logging_manager.setup_logging", return_value=None)
-    @patch("zxtoolbox.video_download.download_with_progress")
-    def test_video_download_with_url(self, mock_download, _mock_setup_log):
-        with patch.object(
-            sys, "argv", ["zxtool", "video", "download", "-u", "https://example.com"]
-        ):
-            cli.main()
-        mock_download.assert_called_once_with("https://example.com", None)
-
-    @patch("zxtoolbox.logging_manager.setup_logging", return_value=None)
-    @patch("zxtoolbox.video_download.download_with_progress")
-    def test_video_download_with_url_and_output(self, mock_download, _mock_setup_log):
-        with patch.object(
-            sys,
-            "argv",
-            ["zxtool", "video", "download", "-u", "https://example.com", "-o", "/tmp/vid.mp4"],
-        ):
-            cli.main()
-        mock_download.assert_called_once_with("https://example.com", "/tmp/vid.mp4")
-
-    @patch("zxtoolbox.logging_manager.setup_logging", return_value=None)
-    def test_video_no_subcommand_shows_help(self, _mock_setup_log, capsys):
-        with patch.object(sys, "argv", ["zxtool", "video"]):
-            cli.main()
-        captured = capsys.readouterr()
-        assert "video" in captured.out.lower()
-
-    @patch("zxtoolbox.logging_manager.setup_logging", return_value=None)
-    @patch("zxtoolbox.video_download.extract_audio")
+    @patch("zxtoolbox.video_audio.extract_audio")
     def test_video_audio_defaults(self, mock_extract, _mock_setup_log):
         with patch.object(
             sys, "argv", ["zxtool", "video", "audio", "-f", "movie.mp4"]
@@ -122,7 +95,7 @@ class TestCliVideo:
         )
 
     @patch("zxtoolbox.logging_manager.setup_logging", return_value=None)
-    @patch("zxtoolbox.video_download.extract_audio")
+    @patch("zxtoolbox.video_audio.extract_audio")
     def test_video_audio_with_all_options(self, mock_extract, _mock_setup_log):
         with patch.object(
             sys,
@@ -862,3 +835,53 @@ class TestCliImage:
             quality=80,
             output_format="jpeg",
         )
+
+    @patch("zxtoolbox.logging_manager.setup_logging", return_value=None)
+    @patch("zxtoolbox.image_manager.batch_compress_webp")
+    def test_image_batch_defaults(self, mock_batch, _mock_setup_log):
+        with patch.object(sys, "argv", ["zxtool", "image", "batch", "photos"]):
+            cli.main()
+        mock_batch.assert_called_once_with(
+            directory="photos",
+            max_size=20 * 1024,
+            keep_original=False,
+            backup_dir=None,
+        )
+
+    @patch("zxtoolbox.logging_manager.setup_logging", return_value=None)
+    @patch("zxtoolbox.image_manager.batch_compress_webp")
+    def test_image_batch_with_options(self, mock_batch, _mock_setup_log):
+        with patch.object(
+            sys,
+            "argv",
+            [
+                "zxtool", "image", "batch", "photos",
+                "-s", "30K", "-k", "--backup-dir", "bak",
+            ],
+        ):
+            cli.main()
+        mock_batch.assert_called_once_with(
+            directory="photos",
+            max_size=30 * 1024,
+            keep_original=True,
+            backup_dir="bak",
+        )
+
+    @patch("zxtoolbox.logging_manager.setup_logging", return_value=None)
+    @patch("zxtoolbox.image_manager.batch_compress_webp")
+    def test_image_batch_invalid_max_size(self, mock_batch, _mock_setup_log, capsys):
+        with patch.object(
+            sys, "argv", ["zxtool", "image", "batch", "photos", "-s", "abc"]
+        ):
+            cli.main()
+        mock_batch.assert_not_called()
+        assert "[ERROR]" in capsys.readouterr().out
+
+    @patch("zxtoolbox.logging_manager.setup_logging", return_value=None)
+    @patch("zxtoolbox.image_manager.batch_compress_webp")
+    def test_image_batch_directory_not_found(self, mock_batch, _mock_setup_log, capsys):
+        mock_batch.side_effect = FileNotFoundError("Input directory not found: missing")
+        with patch.object(sys, "argv", ["zxtool", "image", "batch", "missing"]):
+            cli.main()
+        assert "[ERROR]" in capsys.readouterr().out
+        mock_batch.assert_called_once()
